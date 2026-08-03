@@ -1,0 +1,29 @@
+[project]
+name = "agent-scan"
+version = "0.1.0"
+description = "Agente revisor de Pull Requests com LLM (webhook -> Pub/Sub -> Cloud Tasks -> Bedrock)"
+requires-python = ">=3.13"
+dependencies = [
+    "litellm",         # adaptador universal de LLM
+    "pyyaml",          # ler o config.yaml
+    "boto3",           # backend Bedrock do litellm
+    "python-dotenv",   # carrega o .env no arranque
+    "google-cloud-pubsub",
+    "google-cloud-tasks",
+    "google-auth",     # valida o token OIDC das chamadas internas
+    "pyjwt[crypto]",   # assina o JWT do GitHub App
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

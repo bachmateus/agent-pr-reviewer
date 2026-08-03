@@ -1,0 +1,7 @@
+# Modelo do review. Trocar de LLM = mudar esta string (litellm resolve o resto).
+review_model: bedrock/us.anthropic.claude-opus-4-8
+
+# Teto de tokens de saída. Modelos com thinking (caso do Opus) gastam tokens
+# raciocinando ANTES de escrever a resposta; teto baixo trunca
+# (finish_reason=length) com content vazio e o review sai em branco.
+review_max_tokens: 20000
