@@ -131,7 +131,7 @@ def review_file(path: str, patch: str, content: str | None, provider,
     f = {"filename": path, "patch": patch, "status": "modified",
          "content": content or None}
     try:
-        raw = provider.complete(REVIEW_SYSTEM, build_user_prompt([f]))
+        raw = provider.complete(REVIEW_SYSTEM, build_user_prompt([f])).text
         return _filter_to_diff(parse_review(raw), [f])
     except ValueError:
         return ReviewResult(summary="", comments=[])
@@ -148,7 +148,7 @@ def summarize_pr(files: list[dict], provider,
         if used > budget_chars:
             parts.append("... (diffs truncados)")
             break
-    raw = provider.complete(SUMMARY_SYSTEM, "\n\n".join(parts))
+    raw = provider.complete(SUMMARY_SYSTEM, "\n\n".join(parts)).text
     try:
         return parse_review(raw).summary
     except ValueError:

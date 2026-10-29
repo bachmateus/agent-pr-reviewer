@@ -1,12 +1,11 @@
 [project]
 name = "agent-scan"
 version = "0.1.0"
-description = "Agente revisor de Pull Requests com LLM (webhook -> Pub/Sub -> Cloud Tasks -> Bedrock)"
+description = "Agente revisor de Pull Requests com LLM (webhook -> Pub/Sub -> Cloud Tasks -> Claude API)"
 requires-python = ">=3.13"
 dependencies = [
-    "litellm",         # adaptador universal de LLM
+    "anthropic",       # SDK oficial da Claude API
     "pyyaml",          # ler o config.yaml
-    "boto3",           # backend Bedrock do litellm
     "python-dotenv",   # carrega o .env no arranque
     "google-cloud-pubsub",
     "google-cloud-tasks",

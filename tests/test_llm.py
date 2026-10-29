@@ -1,10 +1,13 @@
 """Testes dos providers de LLM — sem rede e sem chamar o `claude` real."""
 import json
+import re
 
 import pytest
 
+from agent_scan.llm import build_provider
 from agent_scan.llm.base import price_usd
 from agent_scan.llm.fake import FakeProvider
+from agent_scan.reviewer import review_file
 
 PRICES = {"claude-opus-5-5": {"input": 4.00, "output": 20.00}}
 
@@ -24,3 +27,26 @@ def test_fake_provider_acumula_e_repete_ultima():
 
 def test_fake_provider_default_e_json_valido():
     assert json.loads(FakeProvider().complete("s", "u").text)["comments"] == []
+
+
+def test_build_provider_fake_por_env(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "fake")
+    assert isinstance(build_provider({"provider": "anthropic"}), FakeProvider)
+
+
+def test_build_provider_invalido(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "bedrock")
+    with pytest.raises(ValueError, match=re.escape("anthropic | claude-code | fake")):
+        build_provider({})
+
+
+def test_price_usd_modelo_sem_preco(capsys):
+    assert price_usd(PRICES, "modelo-x", 1000, 1000) == 0.0
+    assert "modelo-x" in capsys.readouterr().err
+
+
+def test_review_file_com_fake_filtra_linha():
+    raw = ('{"summary":"s","comments":[{"path":"a.py","line":2,"severity":"info","body":"ok"},'
+           '{"path":"a.py","line":99,"severity":"info","body":"alucinada"}]}')
+    r = review_file("a.py", "@@ -1,1 +1,2 @@\n x\n+y\n", "x\ny\n", FakeProvider(raw))
+    assert [c.line for c in r.comments] == [2]

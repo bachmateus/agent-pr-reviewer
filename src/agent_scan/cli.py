@@ -18,12 +18,6 @@ def _load_env_and_config() -> dict:
     return yaml.safe_load(cfg_path.read_text())
 
 
-def _build_provider(cfg: dict):
-    from agent_scan.llm.litellm_provider import LiteLLMProvider
-    return LiteLLMProvider(model=cfg["review_model"],
-                           max_tokens=cfg.get("review_max_tokens"))
-
-
 def _mint_token() -> str:
     from agent_scan.github_app import mint_installation_token
     return mint_installation_token(
@@ -36,6 +30,7 @@ def cmd_review(target: str) -> int:
     """Fluxo síncrono local: lê o PR, revisa arquivo a arquivo e posta tudo
     num review só. É o 'loop fechado' do artigo, sem fila nem cloud."""
     from agent_scan import pr as pr_api
+    from agent_scan.llm import build_provider
     from agent_scan.reviewer import review_file, summarize_pr
     from agent_scan.webhook import _reviewable
 
@@ -47,7 +42,7 @@ def cmd_review(target: str) -> int:
     number = int(number_s)
 
     cfg = _load_env_and_config()
-    provider = _build_provider(cfg)
+    provider = build_provider(cfg)
     token = _mint_token()
 
     head_sha = pr_api.get_pr_head(org, repo, number, token)
@@ -74,9 +69,10 @@ def cmd_review(target: str) -> int:
 
 
 def cmd_serve(port: int) -> int:
+    from agent_scan.llm import build_provider
     from agent_scan.webhook import Cfg, serve
     cfg_yaml = _load_env_and_config()
-    provider = _build_provider(cfg_yaml)
+    provider = build_provider(cfg_yaml)
     serve(port, Cfg(provider))
     return 0
 

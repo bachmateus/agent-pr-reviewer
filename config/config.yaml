@@ -1,7 +1,15 @@
-# Modelo do review. Trocar de LLM = mudar esta string (litellm resolve o resto).
-review_model: bedrock/us.anthropic.claude-opus-4-8
+# Qual provider usar: anthropic (API, produção) | claude-code (CLI local) | fake (testes).
+# A variável de ambiente LLM_PROVIDER sobrepõe este valor.
+provider: anthropic
 
-# Teto de tokens de saída. Modelos com thinking (caso do Opus) gastam tokens
-# raciocinando ANTES de escrever a resposta; teto baixo trunca
-# (finish_reason=length) com content vazio e o review sai em branco.
+review_model: claude-opus-5-5
+# Teto de tokens de saída. No Opus o thinking conta como saída: teto baixo
+# trunca (stop_reason=max_tokens) e o review sai vazio.
 review_max_tokens: 20000
+# review_effort: medium   # low | medium | high — omitido = padrão do modelo
+
+# Preço em USD por milhão de tokens. Custo = usage × esta tabela.
+prices_usd_per_mtok:
+  claude-opus-5-5:   {input: 4.00, output: 20.00}
+  claude-sonnet-5-5: {input: 2.00, output: 10.00}
+  claude-haiku-5-5:  {input: 0.10, output: 0.50}
