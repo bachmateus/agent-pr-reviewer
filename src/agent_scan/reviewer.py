@@ -41,6 +41,32 @@ REVIEW_SYSTEM = (
     '"body":"<comentario em markdown>"}]}'
 )
 
+# Mesmo contrato do prompt, como JSON Schema. Só o provider `anthropic` usa
+# (saída estruturada); os outros ignoram e o parse tolerante segue valendo.
+REVIEW_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "summary": {"type": "string"},
+        "comments": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "line": {"type": "integer"},
+                    "severity": {"type": "string",
+                                 "enum": ["info", "warning", "error"]},
+                    "body": {"type": "string"},
+                },
+                "required": ["path", "line", "severity", "body"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["summary", "comments"],
+    "additionalProperties": False,
+}
+
 SUMMARY_SYSTEM = (
     "Voce e um revisor de codigo senior. Recebe os diffs (patches) de um Pull "
     "Request e escreve um RESUMO conciso em PORTUGUES (markdown) do que o PR "
@@ -131,7 +157,8 @@ def review_file(path: str, patch: str, content: str | None, provider,
     f = {"filename": path, "patch": patch, "status": "modified",
          "content": content or None}
     try:
-        raw = provider.complete(REVIEW_SYSTEM, build_user_prompt([f])).text
+        raw = provider.complete(REVIEW_SYSTEM, build_user_prompt([f]),
+                                json_schema=REVIEW_SCHEMA).text
         return _filter_to_diff(parse_review(raw), [f])
     except ValueError:
         return ReviewResult(summary="", comments=[])
@@ -148,7 +175,8 @@ def summarize_pr(files: list[dict], provider,
         if used > budget_chars:
             parts.append("... (diffs truncados)")
             break
-    raw = provider.complete(SUMMARY_SYSTEM, "\n\n".join(parts)).text
+    raw = provider.complete(SUMMARY_SYSTEM, "\n\n".join(parts),
+                            json_schema=REVIEW_SCHEMA).text
     try:
         return parse_review(raw).summary
     except ValueError:

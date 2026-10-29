@@ -1,14 +1,16 @@
 """Testes dos providers de LLM — sem rede e sem chamar o `claude` real."""
 import json
 import re
+from types import SimpleNamespace
 
 import pytest
 
 from agent_scan.llm import build_provider
+from agent_scan.llm.anthropic_provider import AnthropicProvider
 from agent_scan.llm.base import price_usd
 from agent_scan.llm.claude_code import ClaudeCodeProvider, RunResult, build_args
 from agent_scan.llm.fake import FakeProvider
-from agent_scan.reviewer import review_file
+from agent_scan.reviewer import REVIEW_SCHEMA, review_file
 
 PRICES = {"claude-opus-5-5": {"input": 4.00, "output": 20.00}}
 
@@ -92,3 +94,79 @@ def test_claude_code_exit_nao_zero_levanta_com_stderr():
     p = ClaudeCodeProvider("m", runner=lambda *a: RunResult(1, "", "boom"))
     with pytest.raises(RuntimeError, match="boom"):
         p.complete("s", "u")
+
+
+class _Stream:
+    def __init__(self, msg):
+        self._msg = msg
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def get_final_message(self):
+        return self._msg
+
+
+class FakeClient:
+    """Imita client.messages.stream(**kw) do SDK e guarda os kwargs enviados."""
+    def __init__(self, msg):
+        self.last_kwargs = None
+        self.messages = self
+        self._msg = msg
+
+    def stream(self, **kw):
+        self.last_kwargs = kw
+        return _Stream(self._msg)
+
+
+def _msg(blocks, stop="end_turn"):
+    usage = SimpleNamespace(input_tokens=1000, output_tokens=500,
+                            cache_read_input_tokens=None, cache_creation_input_tokens=0)
+    return SimpleNamespace(content=blocks, usage=usage, stop_reason=stop)
+
+
+def test_anthropic_monta_request_e_custo():
+    client = FakeClient(_msg([SimpleNamespace(type="thinking"),
+                              SimpleNamespace(type="text", text='{"a":1}')]))
+    p = AnthropicProvider("claude-opus-5-5", 20000, PRICES, effort="low", client=client)
+    c = p.complete("SYS", "U", json_schema={"type": "object"})
+    kw = client.last_kwargs
+    assert kw["system"] == "SYS" and "thinking" not in kw
+    assert kw["messages"] == [{"role": "user", "content": "U"}]
+    assert kw["output_config"] == {"effort": "low",
+                                   "format": {"type": "json_schema", "schema": {"type": "object"}}}
+    assert c.text == '{"a":1}' and c.cost_usd == pytest.approx(0.014)  # (1000×4 + 500×20) / 1e6
+    assert p.calls == 1 and p.input_tokens == 1000
+
+
+def test_anthropic_sem_schema_nem_effort_nao_envia_output_config():
+    client = FakeClient(_msg([SimpleNamespace(type="text", text="x")]))
+    AnthropicProvider("claude-opus-5-5", 100, PRICES, client=client).complete("s", "u")
+    assert "output_config" not in client.last_kwargs
+
+
+def test_anthropic_sem_bloco_de_texto_devolve_vazio_e_stop_reason():
+    client = FakeClient(_msg([SimpleNamespace(type="thinking")], stop="max_tokens"))
+    c = AnthropicProvider("claude-opus-5-5", 100, PRICES, client=client).complete("s", "u")
+    assert (c.text, c.stop_reason) == ("", "max_tokens")
+
+
+def test_review_schema_fecha_os_dois_niveis():
+    item = REVIEW_SCHEMA["properties"]["comments"]["items"]
+    assert REVIEW_SCHEMA["additionalProperties"] is False and item["additionalProperties"] is False
+    assert set(item["required"]) == {"path", "line", "severity", "body"}
+    assert item["properties"]["severity"]["enum"] == ["info", "warning", "error"]
+
+
+def test_review_file_manda_schema():
+    class Spy(FakeProvider):
+        def complete(self, system, user, json_schema=None):
+            self.schema = json_schema
+            return super().complete(system, user)
+
+    s = Spy()
+    review_file("a.py", "@@ -1 +1 @@\n+x\n", "x\n", s)
+    assert s.schema is REVIEW_SCHEMA
