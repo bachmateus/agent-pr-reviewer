@@ -31,19 +31,27 @@ GitHub ──webhook (HMAC)──► /webhook ──publish──► Pub/Sub
 | `src/agent_scan/pr.py` | API do GitHub via urllib puro (files, reviews, inline, guardas de idempotência) |
 | `src/agent_scan/github_app.py` | JWT RS256 → installation token efêmero (~1h) |
 | `src/agent_scan/webhook.py` | rotas `/webhook` `/process` `/chunk`, HMAC, OIDC, planner/worker |
-| `src/agent_scan/llm/litellm_provider.py` | adaptador do LLM via litellm (retry + custo por chamada) |
-| `src/agent_scan/cli.py` | comandos `review` (síncrono, local) e `serve` (serviço) |
+| `src/agent_scan/files.py` | filtro de arquivos revisáveis (pula lockfiles, docs, removidos) |
+| `src/agent_scan/llm/` | providers de LLM: `anthropic` (SDK oficial), `claude-code` (CLI local), `fake` (testes); custo por `usage` × tabela de preços |
+| `src/agent_scan/cli.py` | comandos `doctor`, `ask`, `review-diff`, `review` (locais) e `serve` (serviço) |
 
 ## Rodando local
 
 ```bash
 python -m venv .venv && . .venv/bin/activate
 pip install -e ".[dev]"
-pytest                       # 16 testes das funções puras, sem rede
+pytest                       # testes sem rede e sem credencial
 
-cp .env.example .env         # preencha Bedrock + GitHub App
-python -m agent_scan review SUA-ORG/SEU-REPO#123
+cp .env.example .env         # escolha o provider e preencha as credenciais
+python -m agent_scan doctor  # confere ambiente e credenciais
+python -m agent_scan ask "o que é um code review?"
+python -m agent_scan review-diff examples/calc.py   # revisa examples/calc.py + .diff
+python -m agent_scan review SUA-ORG/SEU-REPO#123    # precisa do GitHub App
 ```
+
+`LLM_PROVIDER` escolhe quem responde: `anthropic` (API, cobra por token),
+`claude-code` (usa o Claude Code logado na máquina — sem API key; logado por
+API key, cobra como a API) ou `fake` (resposta fixa, sem LLM).
 
 O comando `review` executa o fluxo completo de forma síncrona (sem fila, sem
 cloud): lê o PR, revisa cada arquivo e posta um review com tudo. Imprime o
@@ -54,8 +62,9 @@ custo da execução ao final.
 - **GitHub App** da organização com `Pull requests: Read/Write` +
   `Contents: Read` — passo a passo completo em
   [`docs/github-app-setup.md`](docs/github-app-setup.md).
-- **Bedrock**: uma API key (`AWS_BEARER_TOKEN_BEDROCK`). Trocar de
-  modelo/provedor = editar `config/config.yaml` (litellm resolve o resto).
+- **LLM**: uma API key da Anthropic (`ANTHROPIC_API_KEY`) **ou** o Claude Code
+  instalado e logado (`LLM_PROVIDER=claude-code`). Modelo, teto de tokens e
+  tabela de preços ficam em `config/config.yaml`.
 - **GCP** (só para o serviço): Cloud Run + Pub/Sub + Cloud Tasks —
   infra completa em [`terraform/`](terraform/).
 
@@ -63,7 +72,8 @@ custo da execução ao final.
 
 | Variável | Uso |
 |---|---|
-| `AWS_BEARER_TOKEN_BEDROCK` / `AWS_REGION` | credencial do Bedrock (litellm) |
+| `LLM_PROVIDER` | `anthropic` \| `claude-code` \| `fake` (sobrepõe `provider` do config) |
+| `ANTHROPIC_API_KEY` | credencial da Claude API (provider `anthropic`) |
 | `GH_APP_ID` / `GH_APP_INSTALLATION_ID` / `GH_APP_PRIVATE_KEY` | GitHub App (mint do token efêmero) |
 | `GITHUB_WEBHOOK_SECRET` | HMAC do webhook |
 | `PUBSUB_TOPIC` | topic que o `/webhook` publica |

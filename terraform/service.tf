@@ -13,7 +13,7 @@ resource "google_cloud_run_v2_service" "agent_scan" {
       max_instance_count = var.max_instances
     }
     # 1 request por instância: junto com max_instances e a fila do Cloud
-    # Tasks, é o que limita as chamadas simultâneas no Bedrock. O rate limit
+    # Tasks, é o que limita as chamadas simultâneas na API da Anthropic. O rate limit
     # do LLM é controlado pela infra, não por semáforo em código.
     max_instance_request_concurrency = 1
 
@@ -64,10 +64,6 @@ resource "google_cloud_run_v2_service" "agent_scan" {
         value = var.gh_bot_login
       }
       env {
-        name  = "AWS_REGION"
-        value = var.aws_region
-      }
-      env {
         name = "GITHUB_WEBHOOK_SECRET"
         value_source {
           secret_key_ref {
@@ -86,10 +82,10 @@ resource "google_cloud_run_v2_service" "agent_scan" {
         }
       }
       env {
-        name = "AWS_BEARER_TOKEN_BEDROCK"
+        name = "ANTHROPIC_API_KEY"
         value_source {
           secret_key_ref {
-            secret  = google_secret_manager_secret.bedrock.secret_id
+            secret  = google_secret_manager_secret.anthropic.secret_id
             version = "latest"
           }
         }

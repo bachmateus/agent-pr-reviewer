@@ -3,7 +3,7 @@
 #
 #   echo -n "SEU_SECRET" | gcloud secrets versions add github-webhook-secret --data-file=-
 #   gcloud secrets versions add github-app-key --data-file=chave-privada.pem
-#   echo -n "SUA_APIKEY" | gcloud secrets versions add bedrock-bearer-token --data-file=-
+#   echo -n "SUA_APIKEY" | gcloud secrets versions add anthropic-api-key --data-file=-
 
 resource "google_secret_manager_secret" "github_webhook_secret" {
   secret_id = "github-webhook-secret"
@@ -21,8 +21,8 @@ resource "google_secret_manager_secret" "github_app_key" {
   depends_on = [google_project_service.apis]
 }
 
-resource "google_secret_manager_secret" "bedrock" {
-  secret_id = "bedrock-bearer-token"
+resource "google_secret_manager_secret" "anthropic" {
+  secret_id = "anthropic-api-key"
   replication {
     auto {}
   }
@@ -32,9 +32,9 @@ resource "google_secret_manager_secret" "bedrock" {
 # A SA do serviço precisa ler os três.
 resource "google_secret_manager_secret_iam_member" "accessor" {
   for_each = {
-    webhook = google_secret_manager_secret.github_webhook_secret.secret_id
-    appkey  = google_secret_manager_secret.github_app_key.secret_id
-    bedrock = google_secret_manager_secret.bedrock.secret_id
+    webhook   = google_secret_manager_secret.github_webhook_secret.secret_id
+    appkey    = google_secret_manager_secret.github_app_key.secret_id
+    anthropic = google_secret_manager_secret.anthropic.secret_id
   }
   secret_id = each.value
   role      = "roles/secretmanager.secretAccessor"

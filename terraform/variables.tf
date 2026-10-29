@@ -14,12 +14,6 @@ variable "image" {
   type        = string
 }
 
-variable "aws_region" {
-  description = "Região do Bedrock (litellm)"
-  type        = string
-  default     = "us-east-1"
-}
-
 variable "github_app_id" {
   description = "App ID do GitHub App"
   type        = string
