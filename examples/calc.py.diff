@@ -1,0 +1,18 @@
+@@ -2,9 +2,14 @@
+ 
+ def divide(a, b):
+-    if b == 0:
+-        raise ValueError("divisão por zero")
+     return a / b
+ 
+ 
+ def parse_number(text):
+-    return float(text)
++    try:
++        return float(text)
++    except:
++        return 0
++
++
++def average(values):
++    return divide(sum(values), len(values))
