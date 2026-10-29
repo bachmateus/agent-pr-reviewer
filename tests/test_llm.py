@@ -6,6 +6,7 @@ import pytest
 
 from agent_scan.llm import build_provider
 from agent_scan.llm.base import price_usd
+from agent_scan.llm.claude_code import ClaudeCodeProvider, RunResult, build_args
 from agent_scan.llm.fake import FakeProvider
 from agent_scan.reviewer import review_file
 
@@ -50,3 +51,44 @@ def test_review_file_com_fake_filtra_linha():
            '{"path":"a.py","line":99,"severity":"info","body":"alucinada"}]}')
     r = review_file("a.py", "@@ -1,1 +1,2 @@\n x\n+y\n", "x\ny\n", FakeProvider(raw))
     assert [c.line for c in r.comments] == [2]
+
+
+OK = json.dumps({"result": "oi", "is_error": False, "stop_reason": "end_turn",
+                 "total_cost_usd": 0.0123,
+                 "usage": {"input_tokens": 10, "cache_read_input_tokens": 5,
+                           "cache_creation_input_tokens": 2, "output_tokens": 7}})
+
+
+def test_claude_code_prompt_vai_por_stdin_e_flags_isoladas():
+    seen = {}
+
+    def runner(args, stdin, env, timeout):
+        seen.update(args=args, stdin=stdin, env=env)
+        return RunResult(0, OK, "")
+
+    c = ClaudeCodeProvider("claude-haiku-5-5", runner=runner).complete("SYS", "PROMPT GRANDE")
+    assert seen["stdin"] == "PROMPT GRANDE" and "PROMPT GRANDE" not in seen["args"]
+    assert seen["args"] == build_args("claude-haiku-5-5", "SYS")
+    assert seen["env"]["MAX_THINKING_TOKENS"] == "0"
+    assert (c.text, c.input_tokens, c.output_tokens, c.cost_usd) == ("oi", 17, 7, 0.0123)
+
+
+def test_claude_code_build_args_exatos():
+    assert build_args("m", "S") == [
+        "claude", "-p", "--output-format", "json", "--model", "m",
+        "--system-prompt", "S", "--tools", "", "--setting-sources", "",
+        "--strict-mcp-config", "--disable-slash-commands",
+        "--no-session-persistence"]
+
+
+def test_claude_code_is_error_com_exit_zero_levanta():
+    bad = json.dumps({"result": "Not logged in", "is_error": True})
+    p = ClaudeCodeProvider("m", runner=lambda *a: RunResult(0, bad, ""))
+    with pytest.raises(RuntimeError, match="Not logged in"):
+        p.complete("s", "u")
+
+
+def test_claude_code_exit_nao_zero_levanta_com_stderr():
+    p = ClaudeCodeProvider("m", runner=lambda *a: RunResult(1, "", "boom"))
+    with pytest.raises(RuntimeError, match="boom"):
+        p.complete("s", "u")
