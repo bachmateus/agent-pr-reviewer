@@ -13,8 +13,8 @@ from agent_scan.reviewer import (
     commentable_lines,
     parse_review,
 )
+from agent_scan.files import reviewable
 from agent_scan.webhook import (
-    _reviewable,
     decode_push,
     select_event,
     verify_signature,
@@ -147,8 +147,8 @@ def test_decode_push_desembrulha_envelope():
 
 
 def test_reviewable_filtros():
-    assert _reviewable("src/app.py", "modified") is True
-    assert _reviewable("README.md", "modified") is False
-    assert _reviewable("docs/guia.txt", "modified") is False
-    assert _reviewable("package-lock.json", "modified") is False
-    assert _reviewable("src/app.py", "removed") is False
+    assert reviewable("src/app.py", "modified") is True
+    assert reviewable("README.md", "modified") is False
+    assert reviewable("docs/guia.txt", "modified") is False
+    assert reviewable("package-lock.json", "modified") is False
+    assert reviewable("src/app.py", "removed") is False

@@ -15,6 +15,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from agent_scan import pr as pr_api
 from agent_scan import reviewer as reviewer_mod
+from agent_scan.files import reviewable
 from agent_scan.github_app import mint_installation_token
 
 
@@ -80,25 +81,6 @@ def decode_push(envelope: dict) -> dict:
 
 # ---------------------------------------------------------------- planner ---
 
-_SKIP_EXT = (".md",)
-_SKIP_NAMES = {"package-lock.json", "yarn.lock", "pnpm-lock.yaml",
-               "poetry.lock", "go.sum", "gemfile.lock"}
-
-
-def _reviewable(path: str, status: str) -> bool:
-    """Cada arquivo é uma chamada paga de LLM — pula o que não gera valor."""
-    if status == "removed":
-        return False
-    p = path.lower()
-    if p.endswith(_SKIP_EXT):
-        return False
-    if p.startswith("docs/"):
-        return False
-    if p.rsplit("/", 1)[-1] in _SKIP_NAMES:
-        return False
-    return True
-
-
 # Cloud Tasks limita o body da task em ~1MB. Patch acima disso é TRUNCADO
 # pelo prefixo, nunca zerado: patch vazio faria commentable_lines descartar
 # todo comentário do arquivo.
@@ -144,7 +126,7 @@ def plan_review(job: dict, provider, token: str, tasks_client, queue_path: str,
             org, repo, number, token, bot_login, head_sha):
         return 0   # pub/sub re-entregou; já revisei esse commit
     files = pr_api.get_pr_files(org, repo, number, token)
-    revs = [f for f in files if _reviewable(f["filename"], f.get("status", ""))]
+    revs = [f for f in files if reviewable(f["filename"], f.get("status", ""))]
     for f in revs:
         enqueue_chunk(tasks_client, queue_path, chunk_url, oidc_sa, audience, {
             "org": org, "repo": repo, "number": number,

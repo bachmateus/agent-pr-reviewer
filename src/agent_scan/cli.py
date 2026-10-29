@@ -32,7 +32,7 @@ def cmd_review(target: str) -> int:
     from agent_scan import pr as pr_api
     from agent_scan.llm import build_provider
     from agent_scan.reviewer import review_file, summarize_pr
-    from agent_scan.webhook import _reviewable
+    from agent_scan.files import reviewable
 
     org_repo, _, number_s = target.partition("#")
     org, _, repo = org_repo.partition("/")
@@ -47,7 +47,7 @@ def cmd_review(target: str) -> int:
 
     head_sha = pr_api.get_pr_head(org, repo, number, token)
     files = pr_api.get_pr_files(org, repo, number, token)
-    revs = [f for f in files if _reviewable(f["filename"], f.get("status", ""))]
+    revs = [f for f in files if reviewable(f["filename"], f.get("status", ""))]
     print(f"PR {target}: {len(files)} arquivos, {len(revs)} revisáveis")
 
     comments = []
