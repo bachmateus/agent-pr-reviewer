@@ -1,8 +1,16 @@
 """Testes dos comandos locais (doctor, ask, review-diff) com o provider fake."""
 from pathlib import Path
 
+import pytest
+
 from agent_scan.cli import main
 from agent_scan.reviewer import commentable_lines
+
+
+@pytest.fixture(autouse=True)
+def _sem_dotenv(monkeypatch):
+    # O .env do aluno não pode vazar para os testes (load_dotenv grava em os.environ).
+    monkeypatch.setattr("dotenv.load_dotenv", lambda *a, **k: False)
 
 
 def test_review_diff_fixture_com_fake(monkeypatch, capsys):

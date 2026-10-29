@@ -170,3 +170,18 @@ def test_review_file_manda_schema():
     s = Spy()
     review_file("a.py", "@@ -1 +1 @@\n+x\n", "x\n", s)
     assert s.schema is REVIEW_SCHEMA
+
+
+def test_claude_code_exit_nao_zero_usa_result_do_json():
+    # Não logado: CLI sai com 1 e manda o erro no JSON do stdout, stderr vazio.
+    bad = json.dumps({"is_error": True, "result": "Invalid API key · Please run /login"})
+    p = ClaudeCodeProvider("m", runner=lambda *a: RunResult(1, bad, ""))
+    with pytest.raises(RuntimeError, match="Please run /login"):
+        p.complete("s", "u")
+
+
+def test_claude_code_stdout_nao_json_levanta_runtime_error():
+    # Não pode virar ValueError: o reviewer engoliria como review vazio.
+    p = ClaudeCodeProvider("m", runner=lambda *a: RunResult(0, "Error: not json", ""))
+    with pytest.raises(RuntimeError, match="não-JSON"):
+        p.complete("s", "u")

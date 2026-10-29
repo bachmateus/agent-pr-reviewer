@@ -54,9 +54,20 @@ class ClaudeCodeProvider(BaseProvider):
         env = {**os.environ, "MAX_THINKING_TOKENS": "0"}
         # O prompt vai por stdin: arquivo inteiro + diff estouraria o limite de argv.
         r = self._run(build_args(self.model, system), user, env, self._timeout_s)
+        # Toda falha do CLI vira RuntimeError. Nunca ValueError: o reviewer
+        # trata ValueError como "resposta sem JSON" e devolveria review vazio.
+        try:
+            out = json.loads(r.stdout)
+        except json.JSONDecodeError:
+            out = None
+        if not isinstance(out, dict):
+            out = None
         if r.code != 0:
-            raise RuntimeError(f"claude-code: exit {r.code}: {r.stderr.strip()}")
-        out = json.loads(r.stdout)
+            # Com --output-format json o erro (ex.: não logado) vem no stdout.
+            msg = (out or {}).get("result") or r.stderr.strip() or r.stdout[:500]
+            raise RuntimeError(f"claude-code: exit {r.code}: {msg}")
+        if out is None:
+            raise RuntimeError(f"claude-code: saída não-JSON: {r.stdout[:200]}")
         if out.get("is_error"):
             raise RuntimeError(f"claude-code: {out.get('result', 'erro sem mensagem')}")
         usage = out.get("usage") or {}
