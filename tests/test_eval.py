@@ -110,3 +110,16 @@ def test_load_cases_arquivo_sem_quebra_de_linha_no_fim(tmp_path):
     (d / "expected.json").write_text(json.dumps({"path": "a.py", "expected": [{"line": 2}]}))
     [case] = load_cases(tmp_path)
     assert 2 in commentable_lines(case.patch)
+
+
+def test_run_eval_resposta_incompleta_conta_como_perdido():
+    class Trunc(FakeProvider):
+        def complete(self, system, user, json_schema=None):
+            c = super().complete(system, user, json_schema)
+            c.stop_reason = "max_tokens"
+            return c
+    case = Case(name="c", path="a.py", content="x\n", patch="@@ -0,0 +1,1 @@\n+x\n",
+                expected=[Expected(1)])
+    report = run_eval([case], Trunc())
+    assert report.recall == 0.0 and report.scores[0].misses == [1]
+    assert report.scores[0].incomplete is True

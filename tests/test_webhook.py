@@ -141,3 +141,70 @@ def test_verify_oidc_assinatura_invalida():
     def boom(token, audience):
         raise ValueError("Token used too late")
     assert verify_oidc("tok", "https://svc", "sa@x", verify=boom) is None
+
+
+class _FakeTasks:
+    def __init__(self, fail_existing=False):
+        self.created = []
+        self._fail = fail_existing
+
+    def create_task(self, parent, task):
+        from google.api_core.exceptions import AlreadyExists
+        if self._fail and task.get("name"):
+            raise AlreadyExists("task já existe")
+        self.created.append(task)
+
+
+def _plan(monkeypatch, tasks, force=False):
+    from agent_scan import pr as pr_api
+    from agent_scan import webhook
+    from agent_scan.llm.fake import FakeProvider
+    monkeypatch.setattr(pr_api, "has_reviewed_sha", lambda *a: False)
+    monkeypatch.setattr(pr_api, "get_pr_files", lambda *a: [
+        {"filename": "a.py", "patch": "@@ -1 +1 @@\n+x\n", "status": "modified"},
+        {"filename": "bin.png", "patch": "", "status": "added"}])
+    monkeypatch.setattr(pr_api, "post_review", lambda *a: None)
+    job = {"org": "o", "repo": "r", "number": 1, "head_sha": "abc", "force": force}
+    return webhook.plan_review(job, FakeProvider(), "t", tasks, "projects/p/locations/l/queues/q",
+                               "https://svc/chunk", "sa@x", "https://svc", "bot[bot]")
+
+
+def test_plan_review_nome_de_task_deterministico(monkeypatch):
+    t1, t2 = _FakeTasks(), _FakeTasks()
+    assert _plan(monkeypatch, t1) == 1      # bin.png sem patch fica de fora
+    _plan(monkeypatch, t2)
+    name = t1.created[0]["name"]
+    assert name.startswith("projects/p/locations/l/queues/q/tasks/")
+    assert name == t2.created[0]["name"]    # retry gera o MESMO nome
+
+
+def test_plan_review_retry_ignora_task_existente(monkeypatch):
+    # Pub/Sub re-entregou depois do enqueue: Cloud Tasks recusa o nome repetido.
+    assert _plan(monkeypatch, _FakeTasks(fail_existing=True)) == 1
+
+
+def test_plan_review_force_nao_usa_nome(monkeypatch):
+    # /review explícito precisa re-revisar o mesmo commit: sem dedup por nome.
+    t = _FakeTasks()
+    _plan(monkeypatch, t, force=True)
+    assert "name" not in t.created[0]
+
+
+def test_process_chunk_resposta_incompleta_nao_reenfileira(monkeypatch, capsys):
+    from agent_scan import pr as pr_api
+    from agent_scan import webhook
+    from agent_scan.llm.fake import FakeProvider
+
+    class Trunc(FakeProvider):
+        def complete(self, system, user, json_schema=None):
+            c = super().complete(system, user, json_schema)
+            c.stop_reason = "max_tokens"
+            return c
+
+    monkeypatch.setattr(pr_api, "has_reviewed_path", lambda *a: False)
+    monkeypatch.setattr(pr_api, "get_file_content", lambda *a: "x\n")
+    chunk = {"org": "o", "repo": "r", "number": 1, "commit_id": "abc", "head_sha": "abc",
+             "path": "a.py", "status": "modified", "patch": "@@ -1 +1 @@\n+x\n"}
+    # Retry pagaria de novo pela mesma resposta cortada: devolve 2xx e loga.
+    assert webhook.process_chunk(chunk, Trunc(), "t", "bot[bot]") == "incomplete"
+    assert "max_tokens" in capsys.readouterr().err
