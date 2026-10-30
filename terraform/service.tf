@@ -12,10 +12,18 @@ resource "google_cloud_run_v2_service" "agent_scan" {
       min_instance_count = 0 # scale-to-zero: sem PR, sem custo
       max_instance_count = var.max_instances
     }
-    # 1 request por instância: junto com max_instances e a fila do Cloud
-    # Tasks, é o que limita as chamadas simultâneas na API da Anthropic. O rate limit
-    # do LLM é controlado pela infra, não por semáforo em código.
-    max_instance_request_concurrency = 1
+    # Quem limita as chamadas simultâneas ao LLM é a fila do Cloud Tasks
+    # (max_concurrent_dispatches). Concorrência > 1 aqui deixa vaga para o
+    # /webhook entrar mesmo com workers ocupados — com 1, o GitHub recebia
+    # 429 e o evento se perdia (ele não reenvia sozinho).
+    # LIMITAÇÃO CONHECIDA: webhook e workers ainda dividem CPU/memória e
+    # escala. Num pico, o webhook pode atrasar. Solução robusta: um serviço
+    # Cloud Run só para o /webhook.
+    max_instance_request_concurrency = var.request_concurrency
+
+    # Review de arquivo grande com Opus passa do default de 300s. Casa com
+    # DISPATCH_DEADLINE_S do Cloud Tasks (webhook.py).
+    timeout = "900s"
 
     containers {
       image = var.image
