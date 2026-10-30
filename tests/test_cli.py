@@ -6,6 +6,9 @@ import pytest
 from agent_scan.cli import main
 from agent_scan.reviewer import commentable_lines
 
+ROOT = Path(__file__).resolve().parents[1]
+CALC = str(ROOT / "examples" / "calc.py")
+
 
 @pytest.fixture(autouse=True)
 def _sem_dotenv(monkeypatch):
@@ -15,7 +18,7 @@ def _sem_dotenv(monkeypatch):
 
 def test_review_diff_fixture_com_fake(monkeypatch, capsys):
     monkeypatch.setenv("LLM_PROVIDER", "fake")
-    assert main(["review-diff", "examples/calc.py"]) == 0
+    assert main(["review-diff", CALC]) == 0
     out = capsys.readouterr().out
     assert "(fake)" in out and "custo $0.0000" in out
 
@@ -32,11 +35,11 @@ def test_review_diff_imprime_comentario(monkeypatch, capsys):
     # Comentário numa linha do diff aparece como path:line [severity] body.
     from agent_scan import cli
     from agent_scan.llm.fake import FakeProvider
-    raw = ('{"summary":"s","comments":[{"path":"examples/calc.py","line":4,'
+    raw = ('{"summary":"s","comments":[{"path":"' + CALC + '","line":4,'
            '"severity":"error","body":"divisão por zero"}]}')
     monkeypatch.setattr(cli, "build_provider", lambda cfg: FakeProvider(raw))
-    assert main(["review-diff", "examples/calc.py"]) == 0
-    assert "examples/calc.py:4 [error] divisão por zero" in capsys.readouterr().out
+    assert main(["review-diff", CALC]) == 0
+    assert f"{CALC}:4 [error] divisão por zero" in capsys.readouterr().out
 
 
 def test_ask_com_fake(monkeypatch, capsys):
@@ -61,7 +64,7 @@ def test_doctor_fake_sem_github_so_avisa(monkeypatch, capsys):
 
 
 def test_fixture_diff_tem_linhas_comentaveis():
-    patch = Path("examples/calc.py.diff").read_text()
+    patch = Path(CALC + ".diff").read_text()
     assert 4 in commentable_lines(patch)  # diff válido e numerado
 
 
@@ -112,7 +115,7 @@ def test_send_webhook_assina_com_secret_do_env(monkeypatch, capsys):
 
 def test_eval_segunda_rodada_vem_do_cache(monkeypatch, capsys, tmp_path):
     monkeypatch.setenv("LLM_PROVIDER", "fake")
-    args = ["eval", "--cases", "eval/golden", "--cache", str(tmp_path)]
+    args = ["eval", "--cases", str(ROOT / "eval" / "golden"), "--cache", str(tmp_path)]
     assert main(args) == 0
     first = capsys.readouterr().out
     assert "recall 0%" in first and "cache: 0 hit(s), 5 miss(es)" in first
@@ -137,7 +140,7 @@ def test_review_diff_resposta_incompleta(monkeypatch, capsys):
             c.stop_reason = "max_tokens"
             return c
     monkeypatch.setattr(cli, "build_provider", lambda cfg: Trunc())
-    assert main(["review-diff", "examples/calc.py"]) == 1
+    assert main(["review-diff", CALC]) == 1
     assert "max_tokens" in capsys.readouterr().out
 
 

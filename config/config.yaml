@@ -6,7 +6,7 @@ review_model: claude-opus-5-5
 # Teto de tokens de saída. No Opus o thinking conta como saída: teto baixo
 # trunca (stop_reason=max_tokens) e o review sai vazio.
 review_max_tokens: 20000
-# review_effort: medium   # low | medium | high — omitido = padrão do modelo
+# review_effort: medium   # low | medium | high | xhigh | max — omitido = padrão do modelo
 
 # Preço em USD por milhão de tokens. Custo = usage × esta tabela.
 prices_usd_per_mtok:
