@@ -78,7 +78,7 @@ def cmd_ask(question: str, cfg: dict) -> int:
 
 def cmd_review_diff(path: str, cfg: dict) -> int:
     """Revisa um arquivo local: ARQUIVO é o conteúdo, ARQUIVO.diff é o patch."""
-    from agent_scan.reviewer import review_file
+    from agent_scan.reviewer import IncompleteResponse, review_file
 
     diff_path = Path(path + ".diff")
     if not diff_path.exists():
@@ -86,7 +86,12 @@ def cmd_review_diff(path: str, cfg: dict) -> int:
         return 2
     content = Path(path).read_text() if Path(path).exists() else None
     provider = build_provider(cfg)
-    result = review_file(path, diff_path.read_text(), content, provider)
+    try:
+        result = review_file(path, diff_path.read_text(), content, provider)
+    except IncompleteResponse as e:
+        print(f"review não concluído: {e}")
+        _print_cost(provider, cfg)
+        return 1
     print(result.summary)
     for c in result.comments:
         print(f"{c.path}:{c.line} [{c.severity}] {c.body}")
@@ -160,7 +165,7 @@ def cmd_files(target: str) -> int:
     _load_env_and_config()
     files = pr_api.get_pr_files(org, repo, number, _mint_token())
     for f in files:
-        ok = reviewable(f["filename"], f.get("status", ""))
+        ok = reviewable(f["filename"], f.get("status", ""), f.get("patch"))
         print(f"  {'[revisa]' if ok else '[pula]  '} {f['filename']} ({f.get('status', '')})")
     return 0
 
@@ -186,7 +191,7 @@ def cmd_review(target: str) -> int:
     """Fluxo síncrono local: lê o PR, revisa arquivo a arquivo e posta tudo
     num review só. É o 'loop fechado' do artigo, sem fila nem cloud."""
     from agent_scan import pr as pr_api
-    from agent_scan.reviewer import review_file, summarize_pr
+    from agent_scan.reviewer import IncompleteResponse, review_file, summarize_pr
     from agent_scan.files import reviewable
 
     parsed = _parse_target(target)
@@ -201,7 +206,7 @@ def cmd_review(target: str) -> int:
 
     head_sha = pr_api.get_pr_head(org, repo, number, token)
     files = pr_api.get_pr_files(org, repo, number, token)
-    revs = [f for f in files if reviewable(f["filename"], f.get("status", ""))]
+    revs = [f for f in files if reviewable(f["filename"], f.get("status", ""), f.get("patch"))]
     print(f"PR {target}: {len(files)} arquivos, {len(revs)} revisáveis")
 
     comments = []
@@ -209,7 +214,11 @@ def cmd_review(target: str) -> int:
         content = None
         if f.get("status") != "removed":
             content = pr_api.get_file_content(org, repo, f["filename"], head_sha, token)
-        result = review_file(f["filename"], f.get("patch", ""), content, provider)
+        try:
+            result = review_file(f["filename"], f.get("patch", ""), content, provider)
+        except IncompleteResponse as e:
+            print(f"  {f['filename']}: pulado — {e}")
+            continue
         comments.extend(result.comments)
         print(f"  {f['filename']}: {len(result.comments)} comentário(s)")
 

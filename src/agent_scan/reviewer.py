@@ -75,6 +75,23 @@ SUMMARY_SYSTEM = (
 )
 
 
+class IncompleteResponse(RuntimeError):
+    """O modelo parou antes de terminar (teto de tokens, recusa) ou não
+    respondeu nada. Não é "sem comentários": é review que não aconteceu."""
+
+
+# stop_reason que significa resposta cortada: o JSON vem pela metade.
+_INCOMPLETE_STOPS = {"max_tokens", "refusal"}
+
+
+def _check_complete(c) -> str:
+    if c.stop_reason in _INCOMPLETE_STOPS:
+        raise IncompleteResponse(f"resposta incompleta (stop_reason={c.stop_reason})")
+    if not c.text.strip():
+        raise IncompleteResponse("resposta vazia do modelo")
+    return c.text
+
+
 def build_user_prompt(files: list[dict]) -> str:
     parts = []
     for f in files:
@@ -156,9 +173,9 @@ def review_file(path: str, patch: str, content: str | None, provider,
             patch = patch[:budget_chars] + "\n... (diff truncado)"
     f = {"filename": path, "patch": patch, "status": "modified",
          "content": content or None}
+    raw = _check_complete(provider.complete(REVIEW_SYSTEM, build_user_prompt([f]),
+                                            json_schema=REVIEW_SCHEMA))
     try:
-        raw = provider.complete(REVIEW_SYSTEM, build_user_prompt([f]),
-                                json_schema=REVIEW_SCHEMA).text
         return _filter_to_diff(parse_review(raw), [f])
     except ValueError:
         return ReviewResult(summary="", comments=[])
@@ -175,8 +192,11 @@ def summarize_pr(files: list[dict], provider,
         if used > budget_chars:
             parts.append("... (diffs truncados)")
             break
-    raw = provider.complete(SUMMARY_SYSTEM, "\n\n".join(parts),
-                            json_schema=REVIEW_SCHEMA).text
+    try:
+        raw = _check_complete(provider.complete(SUMMARY_SYSTEM, "\n\n".join(parts),
+                                                json_schema=REVIEW_SCHEMA))
+    except IncompleteResponse:
+        return ""   # quem chama cai no texto padrão; nunca posta JSON pela metade
     try:
         return parse_review(raw).summary
     except ValueError:

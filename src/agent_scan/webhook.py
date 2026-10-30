@@ -11,6 +11,7 @@ import hashlib
 import hmac
 import json
 import os
+import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from agent_scan import pr as pr_api
@@ -108,8 +109,16 @@ def decode_push(envelope: dict) -> dict:
 _TASK_BODY_LIMIT = 900_000
 
 
+def task_id(job: dict, path: str) -> str:
+    """Nome determinístico da task: mesmo PR + commit + arquivo = mesmo nome.
+    Retry do planner tenta criar de novo e o Cloud Tasks recusa (AlreadyExists)."""
+    key = f"{job['org']}/{job['repo']}#{job['number']}@{job['head_sha']}:{path}"
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()[:40]
+
+
 def enqueue_chunk(tasks_client, queue_path: str, chunk_url: str,
-                  oidc_sa: str, audience: str, chunk: dict) -> None:
+                  oidc_sa: str, audience: str, chunk: dict,
+                  name: str | None = None) -> None:
     body = json.dumps(chunk).encode("utf-8")
     if len(body) > _TASK_BODY_LIMIT:
         overhead = len(json.dumps({**chunk, "patch": ""}).encode("utf-8"))
@@ -132,7 +141,13 @@ def enqueue_chunk(tasks_client, queue_path: str, chunk_url: str,
             },
         }
     }
-    tasks_client.create_task(parent=queue_path, task=task)
+    if name:
+        task["name"] = f"{queue_path}/tasks/{name}"
+    from google.api_core.exceptions import AlreadyExists
+    try:
+        tasks_client.create_task(parent=queue_path, task=task)
+    except AlreadyExists:
+        pass   # retry do planner: este arquivo já está na fila
 
 
 def plan_review(job: dict, provider, token: str, tasks_client, queue_path: str,
@@ -147,14 +162,16 @@ def plan_review(job: dict, provider, token: str, tasks_client, queue_path: str,
             org, repo, number, token, bot_login, head_sha):
         return 0   # pub/sub re-entregou; já revisei esse commit
     files = pr_api.get_pr_files(org, repo, number, token)
-    revs = [f for f in files if reviewable(f["filename"], f.get("status", ""))]
+    revs = [f for f in files if reviewable(f["filename"], f.get("status", ""), f.get("patch"))]
     for f in revs:
+        # /review (force) precisa re-revisar o mesmo commit: sem nome, sem dedup.
+        name = None if force else task_id({**job, "head_sha": head_sha}, f["filename"])
         enqueue_chunk(tasks_client, queue_path, chunk_url, oidc_sa, audience, {
             "org": org, "repo": repo, "number": number,
             "head_sha": head_sha, "commit_id": head_sha,
             "path": f["filename"], "status": f.get("status", ""),
             "patch": f.get("patch", ""), "force": force,
-        })
+        }, name=name)
     summary = reviewer_mod.summarize_pr(revs, provider) if revs \
         else "Sem arquivos de codigo para revisar neste PR."
     pr_api.post_review(org, repo, number, token,
@@ -175,7 +192,12 @@ def process_chunk(chunk: dict, provider, token: str, bot_login: str) -> str:
     content = None
     if chunk.get("status") != "removed":
         content = pr_api.get_file_content(org, repo, path, chunk["head_sha"], token)
-    result = reviewer_mod.review_file(path, chunk.get("patch", ""), content, provider)
+    try:
+        result = reviewer_mod.review_file(path, chunk.get("patch", ""), content, provider)
+    except reviewer_mod.IncompleteResponse as e:
+        # Retry pagaria de novo pela mesma resposta cortada. Loga e encerra (2xx).
+        print(f"aviso: {path}: {e}", file=sys.stderr, flush=True)
+        return "incomplete"
     for c in result.comments:
         pr_api.post_inline_comment(org, repo, number, token, commit_id,
                                    c.path, c.line, pr_api.render_comment(c))

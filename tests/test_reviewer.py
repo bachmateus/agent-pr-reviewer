@@ -103,3 +103,33 @@ def test_review_file_manda_schema():
     s = Spy()
     review_file("a.py", "@@ -1 +1 @@\n+x\n", "x\n", s)
     assert s.schema is REVIEW_SCHEMA
+
+
+class _Truncated(FakeProvider):
+    """Simula o modelo parando no teto de tokens: JSON pela metade."""
+    def __init__(self, stop_reason="max_tokens", text='{"summary":"cort'):
+        super().__init__(text)
+        self._stop = stop_reason
+
+    def complete(self, system, user, json_schema=None):
+        c = super().complete(system, user, json_schema)
+        c.stop_reason = self._stop
+        return c
+
+
+def test_review_file_resposta_truncada_levanta_incompleta():
+    from agent_scan.reviewer import IncompleteResponse
+    for stop in ("max_tokens", "refusal"):
+        with pytest.raises(IncompleteResponse, match=stop):
+            review_file("a.py", "@@ -1 +1 @@\n+x\n", "x\n", _Truncated(stop))
+
+
+def test_review_file_texto_vazio_levanta_incompleta():
+    from agent_scan.reviewer import IncompleteResponse
+    with pytest.raises(IncompleteResponse):
+        review_file("a.py", "@@ -1 +1 @@\n+x\n", "x\n", _Truncated("end_turn", "  "))
+
+
+def test_summarize_pr_truncado_nao_posta_lixo():
+    from agent_scan.reviewer import summarize_pr
+    assert summarize_pr([{"filename": "a.py", "patch": "+x"}], _Truncated()) == ""

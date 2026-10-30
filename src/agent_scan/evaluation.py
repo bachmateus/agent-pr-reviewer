@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from agent_scan.models import ReviewResult
-from agent_scan.reviewer import review_file
+from agent_scan.reviewer import IncompleteResponse, review_file
 
 # O modelo às vezes aponta a linha vizinha do problema; ±1 ainda é acerto.
 LINE_TOLERANCE = 1
@@ -40,6 +40,7 @@ class CaseScore:
     hits: list[int]     # linhas esperadas que o review encontrou
     misses: list[int]   # linhas esperadas que ficaram sem comentário
     noise: list[int]    # comentários que não correspondem a nada esperado
+    incomplete: bool = False   # o modelo não terminou a resposta
 
 
 @dataclass
@@ -95,7 +96,12 @@ def score_case(case: Case, result: ReviewResult) -> CaseScore:
 def run_eval(cases: list[Case], provider) -> Report:
     scores = []
     for case in cases:
-        result = review_file(case.path, case.patch, case.content, provider)
+        try:
+            result = review_file(case.path, case.patch, case.content, provider)
+        except IncompleteResponse:
+            scores.append(CaseScore(case.name, [], [e.line for e in case.expected],
+                                    [], incomplete=True))
+            continue
         scores.append(score_case(case, result))
     expected = sum(len(s.hits) + len(s.misses) for s in scores)
     found = sum(len(s.hits) for s in scores)
@@ -108,7 +114,8 @@ def run_eval(cases: list[Case], provider) -> Report:
 def format_report(report: Report) -> str:
     lines = []
     for s in report.scores:
-        lines.append(f"  {s.name}: acertos {s.hits} · perdidos {s.misses} · ruído {s.noise}")
+        flag = " · INCOMPLETO" if s.incomplete else ""
+        lines.append(f"  {s.name}: acertos {s.hits} · perdidos {s.misses} · ruído {s.noise}{flag}")
     lines.append(f"recall {report.recall:.0%} · ruído {report.noise} comentário(s)"
                  f" · custo ${report.cost_usd:.4f}")
     return "\n".join(lines)

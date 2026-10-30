@@ -125,3 +125,17 @@ def test_eval_chave_do_cache_inclui_effort_e_max_tokens():
     base = {"review_model": "m", "review_max_tokens": 100}
     assert _replay_prefix(base) != _replay_prefix({**base, "review_effort": "high"})
     assert _replay_prefix(base) != _replay_prefix({**base, "review_max_tokens": 200})
+
+
+def test_review_diff_resposta_incompleta(monkeypatch, capsys):
+    from agent_scan import cli
+    from agent_scan.llm.fake import FakeProvider
+
+    class Trunc(FakeProvider):
+        def complete(self, system, user, json_schema=None):
+            c = super().complete(system, user, json_schema)
+            c.stop_reason = "max_tokens"
+            return c
+    monkeypatch.setattr(cli, "build_provider", lambda cfg: Trunc())
+    assert main(["review-diff", "examples/calc.py"]) == 1
+    assert "max_tokens" in capsys.readouterr().out
