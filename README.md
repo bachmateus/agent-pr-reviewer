@@ -127,6 +127,9 @@ terraform apply -var project=$PROJECT -var image=$IMAGE  # + as mesmas -var do p
 # e cole o output webhook_url no GitHub App
 ```
 
+Deploys seguintes são automáticos: push na `main` → GitHub Actions →
+build + `terraform apply`. Setup em [`docs/ci-setup.md`](docs/ci-setup.md).
+
 As **3 armadilhas de IAM** que custam horas de debug estão comentadas no
 próprio código (`terraform/pubsub.tf` e `terraform/cloudtasks.tf`): o service
 agent do Pub/Sub precisa de `tokenCreator` na sua SA; a SA precisa de

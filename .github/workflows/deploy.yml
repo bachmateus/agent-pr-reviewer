@@ -1,0 +1,60 @@
+# Push na main: testa, builda a imagem, publica no Artifact Registry e aplica o Terraform.
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Dois deploys ao mesmo tempo disputariam o lock do state.
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -e ".[dev]"
+      - run: pytest -q
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    env:
+      IMAGE: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT }}/agent-scan/agent-scan:${{ github.sha }}
+      TF_VAR_project: ${{ vars.GCP_PROJECT }}
+      TF_VAR_region: ${{ vars.GCP_REGION }}
+      TF_VAR_github_app_id: ${{ vars.GH_APP_ID }}
+      TF_VAR_github_app_installation_id: ${{ vars.GH_APP_INSTALLATION_ID }}
+      TF_VAR_gh_bot_login: ${{ vars.GH_BOT_LOGIN }}
+      TF_VAR_process_audience: ${{ vars.PROCESS_AUDIENCE }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # PROVISÓRIO: chave JSON da service account guardada no secret GCP_SA_KEY.
+      # É um token estático de longa duração — a aula 13 troca por
+      # Workload Identity Federation e apaga esta chave.
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: build e push da imagem
+        run: |
+          gcloud auth configure-docker "${{ vars.GCP_REGION }}-docker.pkg.dev" --quiet
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
+
+      - uses: hashicorp/setup-terraform@v3
+
+      - name: terraform apply
+        working-directory: terraform
+        run: |
+          terraform init -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+          terraform apply -auto-approve -input=false -var image="$IMAGE"
