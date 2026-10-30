@@ -3,6 +3,7 @@
   agent-scan doctor                  -> confere ambiente, config e credenciais
   agent-scan ask "pergunta"          -> uma chamada ao LLM, com tokens e custo
   agent-scan review-diff ARQUIVO     -> revisa ARQUIVO + ARQUIVO.diff, sem GitHub
+  agent-scan eval                    -> mede o review no golden set (com replay em cache)
   agent-scan list-prs ORG/REPO       -> lista PRs abertos (testa o GitHub App)
   agent-scan files ORG/REPO#NUM      -> arquivos do PR e quais serão revisados
   agent-scan review ORG/REPO#NUM     -> revisa um PR agora, direto do terminal
@@ -90,6 +91,27 @@ def cmd_review_diff(path: str, cfg: dict) -> int:
     for c in result.comments:
         print(f"{c.path}:{c.line} [{c.severity}] {c.body}")
     _print_cost(provider, cfg)
+    return 0
+
+
+def _replay_prefix(cfg: dict) -> str:
+    """Tudo que muda a resposta entra na chave do cache do eval."""
+    return (f"{_provider_name(cfg)}:{cfg.get('review_model')}:"
+            f"{cfg.get('review_effort')}:{cfg.get('review_max_tokens')}")
+
+
+def cmd_eval(cases_dir: str, cache_dir: str, use_cache: bool, cfg: dict) -> int:
+    from agent_scan.evaluation import format_report, load_cases, run_eval
+    from agent_scan.llm.replay import ReplayProvider
+    cases = load_cases(Path(cases_dir))
+    provider = build_provider(cfg)
+    if use_cache:
+        provider = ReplayProvider(provider, Path(cache_dir), key_prefix=_replay_prefix(cfg))
+    report = run_eval(cases, provider)
+    print(f"{len(cases)} caso(s) · provider {_provider_name(cfg)} · modelo {cfg.get('review_model')}")
+    print(format_report(report))
+    if use_cache:
+        print(f"cache: {provider.hits} hit(s), {provider.misses} miss(es)")
     return 0
 
 
@@ -220,6 +242,12 @@ def main(argv=None) -> int:
     p_diff = sub.add_parser("review-diff", help="revisa ARQUIVO + ARQUIVO.diff")
     p_diff.add_argument("path")
 
+    p_eval = sub.add_parser("eval", help="mede o review no golden set")
+    p_eval.add_argument("--cases", default="eval/golden")
+    p_eval.add_argument("--cache", default="eval/.cache")
+    p_eval.add_argument("--no-cache", action="store_true",
+                        help="ignora o cache e chama o LLM de novo")
+
     p_list = sub.add_parser("list-prs", help="lista PRs abertos de um repo")
     p_list.add_argument("target", help="ORG/REPO")
 
@@ -245,6 +273,8 @@ def main(argv=None) -> int:
         return cmd_ask(args.question, _load_env_and_config())
     if args.cmd == "review-diff":
         return cmd_review_diff(args.path, _load_env_and_config())
+    if args.cmd == "eval":
+        return cmd_eval(args.cases, args.cache, not args.no_cache, _load_env_and_config())
     if args.cmd == "list-prs":
         return cmd_list_prs(args.target)
     if args.cmd == "files":

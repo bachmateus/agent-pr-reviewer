@@ -108,3 +108,20 @@ def test_send_webhook_assina_com_secret_do_env(monkeypatch, capsys):
     assert seen["event"] == "issue_comment" and seen["secret"] == "s3gr3d0"
     assert seen["url"] == "http://localhost:8080/webhook"
     assert "HTTP 204" in capsys.readouterr().out
+
+
+def test_eval_segunda_rodada_vem_do_cache(monkeypatch, capsys, tmp_path):
+    monkeypatch.setenv("LLM_PROVIDER", "fake")
+    args = ["eval", "--cases", "eval/golden", "--cache", str(tmp_path)]
+    assert main(args) == 0
+    first = capsys.readouterr().out
+    assert "recall 0%" in first and "cache: 0 hit(s), 5 miss(es)" in first
+    assert main(args) == 0
+    assert "cache: 5 hit(s), 0 miss(es)" in capsys.readouterr().out
+
+
+def test_eval_chave_do_cache_inclui_effort_e_max_tokens():
+    from agent_scan.cli import _replay_prefix
+    base = {"review_model": "m", "review_max_tokens": 100}
+    assert _replay_prefix(base) != _replay_prefix({**base, "review_effort": "high"})
+    assert _replay_prefix(base) != _replay_prefix({**base, "review_max_tokens": 200})
