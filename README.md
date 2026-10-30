@@ -97,10 +97,10 @@ custo da execução ao final.
 
 ## Infra (Terraform completo em `terraform/`)
 
-O serviço é um Cloud Run com `min_instances=0` (scale-to-zero) e
-`max_instances=10` × `concurrency=1`, casado com a fila do Cloud Tasks
-(`max_concurrent_dispatches=10`) — o rate limit do LLM é controlado pela
-infra, não por semáforo em código. Pub/Sub com retry (10s→600s) e dead-letter
+O serviço é um Cloud Run com `min_instances=0` (scale-to-zero),
+`max_instances=10`, `concurrency=4` e `timeout=900s`. O rate limit do LLM é a
+fila do Cloud Tasks (`max_concurrent_dispatches=10`) — controlado pela infra,
+não por semáforo em código. Pub/Sub com retry (10s→600s) e dead-letter
 após 5 tentativas. Segredos no Secret Manager.
 
 Primeiro deploy (manual):
@@ -138,6 +138,18 @@ próprio código (`terraform/pubsub.tf` e `terraform/cloudtasks.tf`): o service
 agent do Pub/Sub precisa de `tokenCreator` na sua SA; a SA precisa de
 `serviceAccountUser` sobre si mesma no enqueue; o service agent do Cloud
 Tasks precisa de `tokenCreator` no dispatch.
+
+## Limitações conhecidas
+
+- **Webhook e workers no mesmo serviço.** A concorrência 4 deixa vaga para o
+  `/webhook` com workers ocupados, mas os dois ainda dividem CPU, memória e
+  escala. Num pico de reviews o webhook pode atrasar ou falhar — e o GitHub
+  não reenvia sozinho (dá para reenviar em *Settings → Webhooks → Recent
+  Deliveries*). Solução robusta: um serviço Cloud Run só para o `/webhook`.
+- **Custo no `claude-code` é nominal.** Logado por assinatura, o valor
+  impresso é uma referência do CLI, não cobrança.
+- **Arquivo sem patch não é revisado.** Binários e diffs grandes demais (o
+  GitHub não manda patch) ficam de fora.
 
 ## Licença
 

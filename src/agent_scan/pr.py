@@ -98,9 +98,10 @@ def render_comment(c: ReviewComment) -> str:
 
 
 def post_review(org: str, repo: str, number: int, token: str, body: str,
-                comments: list[ReviewComment]) -> None:
+                comments: list[ReviewComment], commit_id: str | None = None) -> None:
     """Review formal com resumo + comentários. event=COMMENT sempre:
-    o agente informa, o humano decide o merge."""
+    o agente informa, o humano decide o merge. commit_id amarra o review ao
+    commit revisado (sem ele, o GitHub usa o head atual do PR)."""
     payload = {
         "event": "COMMENT",
         "body": body,
@@ -108,14 +109,34 @@ def post_review(org: str, repo: str, number: int, token: str, body: str,
                       "side": "RIGHT", "body": render_comment(c)}
                      for c in comments],
     }
+    if commit_id:
+        payload["commit_id"] = commit_id
     status, resp = http("POST",
         f"{_API}/repos/{org}/{repo}/pulls/{number}/reviews", token, payload)
     if status >= 400:
         raise RuntimeError(f"GitHub: postar review falhou (HTTP {status}): {resp}")
 
 
+def post_review_with_fallback(org: str, repo: str, number: int, token: str,
+                              body: str, comments: list[ReviewComment],
+                              commit_id: str) -> int:
+    """Tenta o review com tudo. Um comentário inválido faz o GitHub recusar o
+    review INTEIRO com 422; aí posta o resumo sozinho e os comentários um a um
+    (best-effort). Devolve quantos comentários entraram."""
+    try:
+        post_review(org, repo, number, token, body, comments, commit_id)
+        return len(comments)
+    except RuntimeError as e:
+        if "HTTP 422" not in str(e):
+            raise
+    post_review(org, repo, number, token, body, [], commit_id)
+    return sum(post_inline_comment(org, repo, number, token, commit_id,
+                                   c.path, c.line, render_comment(c))
+               for c in comments)
+
+
 def post_inline_comment(org: str, repo: str, number: int, token: str,
-                        commit_id: str, path: str, line: int, body: str) -> None:
+                        commit_id: str, path: str, line: int, body: str) -> bool:
     """Comentário de review em UMA linha (não cria review novo por comentário).
     Best-effort: um 422 residual (linha fora do diff) é logado, não derruba."""
     payload = {"commit_id": commit_id, "path": path, "line": line,
@@ -125,6 +146,8 @@ def post_inline_comment(org: str, repo: str, number: int, token: str,
     if status >= 400:
         print(f"aviso: comentário inline falhou (HTTP {status}) em {path}:{line}",
               file=sys.stderr, flush=True)
+        return False
+    return True
 
 
 def has_reviewed_sha(org: str, repo: str, number: int, token: str,

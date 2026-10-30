@@ -25,7 +25,8 @@ def test_select_event_pr_aberto():
 def test_select_event_ignora_draft_bot_e_outras_actions():
     assert select_event("pull_request", _payload_pr(draft=True)) is None
     assert select_event("pull_request", _payload_pr(user_type="Bot")) is None
-    assert select_event("pull_request", _payload_pr(action="synchronize")) is None
+    assert select_event("pull_request", _payload_pr(action="closed")) is None
+    assert select_event("pull_request", _payload_pr(action="edited")) is None
 
 
 def test_select_event_comando_review_forca():
@@ -163,7 +164,7 @@ def _plan(monkeypatch, tasks, force=False):
     monkeypatch.setattr(pr_api, "get_pr_files", lambda *a: [
         {"filename": "a.py", "patch": "@@ -1 +1 @@\n+x\n", "status": "modified"},
         {"filename": "bin.png", "patch": "", "status": "added"}])
-    monkeypatch.setattr(pr_api, "post_review", lambda *a: None)
+    monkeypatch.setattr(pr_api, "post_review", lambda *a, **k: None)
     job = {"org": "o", "repo": "r", "number": 1, "head_sha": "abc", "force": force}
     return webhook.plan_review(job, FakeProvider(), "t", tasks, "projects/p/locations/l/queues/q",
                                "https://svc/chunk", "sa@x", "https://svc", "bot[bot]")
@@ -208,3 +209,17 @@ def test_process_chunk_resposta_incompleta_nao_reenfileira(monkeypatch, capsys):
     # Retry pagaria de novo pela mesma resposta cortada: devolve 2xx e loga.
     assert webhook.process_chunk(chunk, Trunc(), "t", "bot[bot]") == "incomplete"
     assert "max_tokens" in capsys.readouterr().err
+
+
+def test_select_event_revisa_push_novo_reaberto_e_draft_que_ficou_pronto():
+    for action in ("opened", "reopened", "synchronize", "ready_for_review"):
+        job = select_event("pull_request", _payload_pr(action=action))
+        assert job is not None and job["head_sha"] == "abc123", action
+
+
+def test_enqueue_chunk_prazo_de_dispatch_casa_com_timeout_do_cloud_run():
+    from agent_scan.webhook import DISPATCH_DEADLINE_S, enqueue_chunk
+    t = _FakeTasks()
+    enqueue_chunk(t, "q", "https://svc/chunk", "sa@x", "https://svc", {"patch": "x"})
+    assert t.created[0]["dispatch_deadline"] == {"seconds": DISPATCH_DEADLINE_S}
+    assert DISPATCH_DEADLINE_S == 900

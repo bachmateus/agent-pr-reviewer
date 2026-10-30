@@ -36,11 +36,17 @@ def verify_signature(body: bytes, signature: str, secret: str) -> bool:
 _REVIEW_ALLOWED = {"OWNER", "MEMBER", "COLLABORATOR"}
 
 
+# synchronize = push novo no PR (head_sha muda, a idempotência por sha deixa
+# passar); ready_for_review = draft que ficou pronto.
+_PR_ACTIONS = {"opened", "reopened", "synchronize", "ready_for_review"}
+
+
 def select_event(event: str, payload: dict, command: str = "/review") -> dict | None:
     """Filtra eventos do GitHub e devolve o job de review, ou None.
 
-    Reviso quando o PR abre; ignoro drafts e PRs abertos por bots (loop de
-    custo). Comentário `/review` força re-review (fura a idempotência)."""
+    Reviso quando o PR abre, reabre, recebe push novo ou sai de draft;
+    ignoro drafts e PRs abertos por bots (loop de custo). Comentário
+    `/review` força re-review (fura a idempotência)."""
     repo = payload.get("repository") or {}
     org = (repo.get("owner") or {}).get("login")
     name = repo.get("name")
@@ -48,7 +54,7 @@ def select_event(event: str, payload: dict, command: str = "/review") -> dict | 
         return None
 
     if event == "pull_request":
-        if payload.get("action") != "opened":
+        if payload.get("action") not in _PR_ACTIONS:
             return None
         prq = payload.get("pull_request") or {}
         if prq.get("draft"):
@@ -108,6 +114,10 @@ def decode_push(envelope: dict) -> dict:
 # todo comentário do arquivo.
 _TASK_BODY_LIMIT = 900_000
 
+# Quanto o Cloud Tasks espera o /chunk responder. Casa com o timeout do Cloud
+# Run (terraform/service.tf): review de arquivo grande com Opus passa de 5 min.
+DISPATCH_DEADLINE_S = 900
+
 
 def task_id(job: dict, path: str) -> str:
     """Nome determinístico da task: mesmo PR + commit + arquivo = mesmo nome.
@@ -130,6 +140,7 @@ def enqueue_chunk(tasks_client, queue_path: str, chunk_url: str,
             chunk = {**chunk, "patch": patch}
             body = json.dumps(chunk).encode("utf-8")
     task = {
+        "dispatch_deadline": {"seconds": DISPATCH_DEADLINE_S},
         "http_request": {
             "http_method": "POST",
             "url": chunk_url,
@@ -175,7 +186,7 @@ def plan_review(job: dict, provider, token: str, tasks_client, queue_path: str,
     summary = reviewer_mod.summarize_pr(revs, provider) if revs \
         else "Sem arquivos de codigo para revisar neste PR."
     pr_api.post_review(org, repo, number, token,
-                       summary or "Revisao automatica.", [])
+                       summary or "Revisao automatica.", [], commit_id=head_sha)
     return len(revs)
 
 

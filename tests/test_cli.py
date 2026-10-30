@@ -139,3 +139,22 @@ def test_review_diff_resposta_incompleta(monkeypatch, capsys):
     monkeypatch.setattr(cli, "build_provider", lambda cfg: Trunc())
     assert main(["review-diff", "examples/calc.py"]) == 1
     assert "max_tokens" in capsys.readouterr().out
+
+
+def test_review_revisa_e_posta_com_fallback(monkeypatch, capsys):
+    from agent_scan import pr as pr_api
+    _fake_github(monkeypatch)
+    monkeypatch.setenv("LLM_PROVIDER", "fake")
+    monkeypatch.setattr(pr_api, "get_pr_head", lambda *a: "abc")
+    monkeypatch.setattr(pr_api, "get_file_content", lambda *a: "x\n")
+    posted = {}
+
+    def fake_post(org, repo, number, token, body, comments, commit_id):
+        posted.update(body=body, commit_id=commit_id, n=len(comments))
+        return len(comments)
+
+    monkeypatch.setattr(pr_api, "post_review_with_fallback", fake_post)
+    assert main(["review", "org/repo#3"]) == 0
+    out = capsys.readouterr().out
+    assert "2 arquivos, 1 revisáveis" in out and "review postado: 0/0" in out
+    assert posted["commit_id"] == "abc" and "(fake)" in posted["body"]

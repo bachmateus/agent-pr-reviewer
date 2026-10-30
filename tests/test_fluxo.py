@@ -30,8 +30,8 @@ def _github(monkeypatch, posted):
         {"filename": "README.md", "patch": "@@ -1 +1 @@\n+x\n", "status": "modified"}])
     monkeypatch.setattr(pr_api, "get_file_content", lambda *a: CONTENT)
     monkeypatch.setattr(pr_api, "post_review",
-                        lambda org, repo, number, token, body, comments:
-                        posted.append((body, comments)))
+                        lambda org, repo, number, token, body, comments, commit_id=None:
+                        posted.append((body, comments, commit_id)))
 
 
 def test_review_posta_resumo_e_so_comentarios_do_diff(monkeypatch, capsys):
@@ -40,8 +40,8 @@ def test_review_posta_resumo_e_so_comentarios_do_diff(monkeypatch, capsys):
     _github(monkeypatch, posted)
     monkeypatch.setattr(cli, "build_provider", lambda cfg: FakeProvider(RAW))
     assert main(["review", "org/repo#3"]) == 0
-    body, comments = posted[0]
-    assert body == "resumo"
+    body, comments, commit_id = posted[0]
+    assert body == "resumo" and commit_id == "abc"
     assert [(c.path, c.line) for c in comments] == [("src/a.py", 2)]   # a 99 caiu no filtro
     assert "2 arquivos, 1 revisáveis" in capsys.readouterr().out
 
@@ -91,7 +91,7 @@ def test_plan_review_uma_task_por_arquivo_e_posta_resumo(monkeypatch):
     assert parent == "q" and chunk["path"] == "src/a.py" and chunk["commit_id"] == "abc"
     assert task["http_request"]["oidc_token"] == {"service_account_email": "sa@x",
                                                   "audience": "https://svc"}
-    assert posted == [("resumo", [])]                # resumo sem inline: inline é do worker
+    assert posted == [("resumo", [], "abc")]         # resumo sem inline: inline é do worker
 
 
 def test_plan_review_commit_ja_revisado_nao_faz_nada(monkeypatch):

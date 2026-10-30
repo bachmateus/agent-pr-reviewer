@@ -35,7 +35,7 @@ variable "process_audience" {
 }
 
 variable "max_instances" {
-  description = "Máximo de instâncias do Cloud Run. Casa de propósito com max_concurrent_dispatches da fila: instâncias × 1 req/instância = chamadas simultâneas no LLM."
+  description = "Máximo de instâncias do Cloud Run. Também é o max_concurrent_dispatches da fila: teto de chamadas simultâneas ao LLM."
   type        = number
   default     = 10
 }
@@ -43,4 +43,10 @@ variable "max_instances" {
 variable "github_repo" {
   description = "Repositório que pode fazer deploy via Workload Identity Federation (ORG/REPO)"
   type        = string
+}
+
+variable "request_concurrency" {
+  description = "Requests simultâneos por instância. > 1 para o /webhook não ser recusado com workers ocupados."
+  type        = number
+  default     = 4
 }

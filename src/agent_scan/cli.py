@@ -224,9 +224,9 @@ def cmd_review(target: str) -> int:
 
     summary = summarize_pr(revs, provider) if revs \
         else "Sem arquivos de codigo para revisar neste PR."
-    pr_api.post_review(org, repo, number, token,
-                       summary or "Revisao automatica.", comments)
-    print(f"review postado: {len(comments)} comentário(s) | "
+    posted = pr_api.post_review_with_fallback(
+        org, repo, number, token, summary or "Revisao automatica.", comments, head_sha)
+    print(f"review postado: {posted}/{len(comments)} comentário(s) | "
           f"{provider.calls} chamada(s) LLM | ${provider.cost_usd:.4f}")
     return 0
 
