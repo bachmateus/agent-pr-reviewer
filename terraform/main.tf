@@ -1,4 +1,10 @@
 terraform {
+  # State remoto num bucket GCS: o CI e você aplicam sobre o MESMO state.
+  # O bucket vem do init: terraform init -backend-config="bucket=SEU-BUCKET"
+  backend "gcs" {
+    prefix = "agent-scan"
+  }
+
   required_providers {
     google = {
       source  = "hashicorp/google"
@@ -21,6 +27,7 @@ locals {
     "iam.googleapis.com",
     "pubsub.googleapis.com",
     "cloudtasks.googleapis.com",
+    "artifactregistry.googleapis.com",
   ]
 }
 

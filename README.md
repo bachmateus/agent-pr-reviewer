@@ -100,16 +100,29 @@ O serviço é um Cloud Run com `min_instances=0` (scale-to-zero) e
 infra, não por semáforo em código. Pub/Sub com retry (10s→600s) e dead-letter
 após 5 tentativas. Segredos no Secret Manager.
 
+Primeiro deploy (manual):
+
 ```bash
+export PROJECT=SEU_PROJETO REGION=us-east1
+# 1. bucket do state (uma vez só)
+gcloud storage buckets create gs://$PROJECT-tfstate --location=$REGION --uniform-bucket-level-access
+
+# 2. infra base + Artifact Registry
 cd terraform
-terraform init
-terraform apply \
-  -var project=SEU_PROJETO \
-  -var image=REGIAO-docker.pkg.dev/SEU_PROJETO/REPO/agent-scan:latest \
-  -var github_app_id=123456 \
-  -var github_app_installation_id=12345678 \
+terraform init -backend-config="bucket=$PROJECT-tfstate"
+terraform apply -target=google_artifact_registry_repository.agent_scan \
+  -var project=$PROJECT -var image=placeholder \
+  -var github_app_id=123456 -var github_app_installation_id=12345678 \
   -var gh_bot_login='agent-scan[bot]' \
-  -var process_audience=https://agent-scan-PROJECT_NUMBER.REGIAO.run.app
+  -var process_audience=https://agent-scan-PROJECT_NUMBER.$REGION.run.app
+
+# 3. imagem
+IMAGE=$REGION-docker.pkg.dev/$PROJECT/agent-scan/agent-scan:v1
+gcloud auth configure-docker $REGION-docker.pkg.dev
+docker build --platform linux/amd64 -t $IMAGE .. && docker push $IMAGE
+
+# 4. resto da infra, com a imagem real
+terraform apply -var project=$PROJECT -var image=$IMAGE  # + as mesmas -var do passo 2
 # depois do apply: adicione os valores dos 3 secrets (ver terraform/secrets.tf)
 # e cole o output webhook_url no GitHub App
 ```
