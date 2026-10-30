@@ -21,6 +21,7 @@ locals {
     "roles/resourcemanager.projectIamAdmin",
     "roles/serviceusage.serviceUsageAdmin",
     "roles/storage.objectAdmin", # state no bucket GCS
+    "roles/iam.workloadIdentityPoolAdmin",
   ]
 }
 

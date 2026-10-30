@@ -116,7 +116,7 @@ terraform init -backend-config="bucket=$PROJECT-tfstate"
 terraform apply -target=google_artifact_registry_repository.agent_scan \
   -var project=$PROJECT -var image=placeholder \
   -var github_app_id=123456 -var github_app_installation_id=12345678 \
-  -var gh_bot_login='agent-scan[bot]' \
+  -var gh_bot_login='agent-scan[bot]' -var github_repo=SUA-ORG/SEU-REPO \
   -var process_audience=https://agent-scan-PROJECT_NUMBER.$REGION.run.app
 
 # 3. imagem

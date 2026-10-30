@@ -39,3 +39,8 @@ variable "max_instances" {
   type        = number
   default     = 10
 }
+
+variable "github_repo" {
+  description = "Repositório que pode fazer deploy via Workload Identity Federation (ORG/REPO)"
+  type        = string
+}
