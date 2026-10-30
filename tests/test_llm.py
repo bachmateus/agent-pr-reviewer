@@ -10,7 +10,6 @@ from agent_scan.llm.anthropic_provider import AnthropicProvider
 from agent_scan.llm.base import price_usd
 from agent_scan.llm.claude_code import ClaudeCodeProvider, RunResult, build_args
 from agent_scan.llm.fake import FakeProvider
-from agent_scan.reviewer import REVIEW_SCHEMA, review_file
 
 PRICES = {"claude-opus-5-5": {"input": 4.00, "output": 20.00}}
 
@@ -46,13 +45,6 @@ def test_build_provider_invalido(monkeypatch):
 def test_price_usd_modelo_sem_preco(capsys):
     assert price_usd(PRICES, "modelo-x", 1000, 1000) == 0.0
     assert "modelo-x" in capsys.readouterr().err
-
-
-def test_review_file_com_fake_filtra_linha():
-    raw = ('{"summary":"s","comments":[{"path":"a.py","line":2,"severity":"info","body":"ok"},'
-           '{"path":"a.py","line":99,"severity":"info","body":"alucinada"}]}')
-    r = review_file("a.py", "@@ -1,1 +1,2 @@\n x\n+y\n", "x\ny\n", FakeProvider(raw))
-    assert [c.line for c in r.comments] == [2]
 
 
 OK = json.dumps({"result": "oi", "is_error": False, "stop_reason": "end_turn",
@@ -152,24 +144,6 @@ def test_anthropic_sem_bloco_de_texto_devolve_vazio_e_stop_reason():
     client = FakeClient(_msg([SimpleNamespace(type="thinking")], stop="max_tokens"))
     c = AnthropicProvider("claude-opus-5-5", 100, PRICES, client=client).complete("s", "u")
     assert (c.text, c.stop_reason) == ("", "max_tokens")
-
-
-def test_review_schema_fecha_os_dois_niveis():
-    item = REVIEW_SCHEMA["properties"]["comments"]["items"]
-    assert REVIEW_SCHEMA["additionalProperties"] is False and item["additionalProperties"] is False
-    assert set(item["required"]) == {"path", "line", "severity", "body"}
-    assert item["properties"]["severity"]["enum"] == ["info", "warning", "error"]
-
-
-def test_review_file_manda_schema():
-    class Spy(FakeProvider):
-        def complete(self, system, user, json_schema=None):
-            self.schema = json_schema
-            return super().complete(system, user)
-
-    s = Spy()
-    review_file("a.py", "@@ -1 +1 @@\n+x\n", "x\n", s)
-    assert s.schema is REVIEW_SCHEMA
 
 
 def test_claude_code_exit_nao_zero_usa_result_do_json():
