@@ -28,6 +28,10 @@ locals {
     "pubsub.googleapis.com",
     "cloudtasks.googleapis.com",
     "artifactregistry.googleapis.com",
+    # WIF: o auth do GitHub Actions troca o token no STS e depois personifica
+    # a SA de deploy pela IAM Credentials API. Sem elas, o 1º deploy falha.
+    "sts.googleapis.com",
+    "iamcredentials.googleapis.com",
   ]
 }
 

@@ -30,6 +30,11 @@ def verify_signature(body: bytes, signature: str, secret: str) -> bool:
     return hmac.compare_digest(expected, signature)
 
 
+# Quem pode pedir /review: só quem tem acesso ao repo. Em repo público qualquer
+# conta comenta, e cada /review é chamada paga de LLM.
+_REVIEW_ALLOWED = {"OWNER", "MEMBER", "COLLABORATOR"}
+
+
 def select_event(event: str, payload: dict, command: str = "/review") -> dict | None:
     """Filtra eventos do GitHub e devolve o job de review, ou None.
 
@@ -58,8 +63,11 @@ def select_event(event: str, payload: dict, command: str = "/review") -> dict | 
         issue = payload.get("issue") or {}
         if not issue.get("pull_request"):
             return None
-        body = ((payload.get("comment") or {}).get("body") or "").strip()
+        comment = payload.get("comment") or {}
+        body = (comment.get("body") or "").strip()
         if not body.lower().startswith(command):
+            return None
+        if comment.get("author_association") not in _REVIEW_ALLOWED:
             return None
         return {"org": org, "repo": name, "number": issue.get("number"),
                 "head_sha": None, "force": True}
@@ -230,6 +238,34 @@ def handle_request(cfg, path: str, headers: dict, body: bytes) -> tuple[int, byt
     return 404, b"not found"
 
 
+# Emissores aceitos para tokens OIDC do Google (Pub/Sub e Cloud Tasks).
+_GOOGLE_ISSUERS = {"https://accounts.google.com", "accounts.google.com"}
+
+
+def _google_verify(token: str, audience: str) -> dict:
+    from google.oauth2 import id_token
+    from google.auth.transport import requests as gauth_requests
+    return id_token.verify_oauth2_token(token, gauth_requests.Request(),
+                                        audience=audience)
+
+
+def verify_oidc(token: str, audience: str, expected_email: str,
+                verify=_google_verify) -> dict | None:
+    """Valida assinatura, expiração e audience (verify) E quem assinou.
+    Só audience não basta: qualquer SA de qualquer projeto consegue um token
+    do Google com o audience do seu serviço. O e-mail tem que ser a SA do
+    Pub/Sub/Cloud Tasks deste projeto."""
+    try:
+        claims = verify(token, audience)
+    except Exception:
+        return None
+    if claims.get("iss") not in _GOOGLE_ISSUERS:
+        return None
+    if claims.get("email") != expected_email or not claims.get("email_verified"):
+        return None
+    return claims
+
+
 class Cfg:
     """Config runtime do serviço: lê env vars no arranque. Em produção elas
     nascem do Terraform (Secret Manager para os segredos)."""
@@ -266,15 +302,7 @@ class Cfg:
             os.environ["GH_APP_PRIVATE_KEY"])
 
     def verify_oidc(self, token: str, audience: str) -> dict | None:
-        """Valida assinatura, expiração e audience do token que o
-        pub/sub/cloud tasks assina como a service account."""
-        try:
-            from google.oauth2 import id_token
-            from google.auth.transport import requests as gauth_requests
-            return id_token.verify_oauth2_token(
-                token, gauth_requests.Request(), audience=audience)
-        except Exception:
-            return None
+        return verify_oidc(token, audience, self.oidc_sa)
 
 
 def serve(port: int, cfg) -> None:  # pragma: no cover - loop de socket

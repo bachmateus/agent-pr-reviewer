@@ -25,6 +25,10 @@ jobs:
   deploy:
     needs: test
     runs-on: ubuntu-latest
+    # id-token: write deixa o job pedir o token OIDC do GitHub (para o WIF).
+    permissions:
+      contents: read
+      id-token: write
     env:
       IMAGE: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT }}/agent-scan/agent-scan:${{ github.sha }}
       TF_VAR_project: ${{ vars.GCP_PROJECT }}
@@ -33,15 +37,16 @@ jobs:
       TF_VAR_github_app_installation_id: ${{ vars.GH_APP_INSTALLATION_ID }}
       TF_VAR_gh_bot_login: ${{ vars.GH_BOT_LOGIN }}
       TF_VAR_process_audience: ${{ vars.PROCESS_AUDIENCE }}
+      TF_VAR_github_repo: ${{ github.repository }}
     steps:
       - uses: actions/checkout@v4
 
-      # PROVISÓRIO: chave JSON da service account guardada no secret GCP_SA_KEY.
-      # É um token estático de longa duração — a aula 13 troca por
-      # Workload Identity Federation e apaga esta chave.
+      # Workload Identity Federation: sem chave guardada. O token OIDC do job
+      # vira uma credencial curta da SA de deploy, só para este repo na main.
       - uses: google-github-actions/auth@v2
         with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SA }}
 
       - uses: google-github-actions/setup-gcloud@v2
 
