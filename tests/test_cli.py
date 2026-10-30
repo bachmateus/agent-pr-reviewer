@@ -63,3 +63,48 @@ def test_doctor_fake_sem_github_so_avisa(monkeypatch, capsys):
 def test_fixture_diff_tem_linhas_comentaveis():
     patch = Path("examples/calc.py.diff").read_text()
     assert 4 in commentable_lines(patch)  # diff válido e numerado
+
+
+def _fake_github(monkeypatch):
+    from agent_scan import cli
+    from agent_scan import pr as pr_api
+    monkeypatch.setattr(cli, "_mint_token", lambda: "t")
+    monkeypatch.setattr(pr_api, "list_open_prs",
+                        lambda org, repo, token: [{"number": 3, "title": "Ajusta X", "author": "ana"}])
+    monkeypatch.setattr(pr_api, "get_pr_files", lambda org, repo, n, token: [
+        {"filename": "src/app.py", "patch": "@@ -1 +1 @@\n+x\n", "status": "modified"},
+        {"filename": "README.md", "patch": "@@ -1 +1 @@\n+y\n", "status": "modified"}])
+
+
+def test_list_prs(monkeypatch, capsys):
+    _fake_github(monkeypatch)
+    assert main(["list-prs", "org/repo"]) == 0
+    assert "#3 Ajusta X (ana)" in capsys.readouterr().out
+
+
+def test_files_marca_revisaveis(monkeypatch, capsys):
+    _fake_github(monkeypatch)
+    assert main(["files", "org/repo#3"]) == 0
+    out = capsys.readouterr().out
+    assert "[revisa] src/app.py" in out and "[pula]   README.md" in out
+
+
+def test_files_alvo_invalido(capsys):
+    assert main(["files", "org/repo"]) == 2
+    assert "ORG/REPO#NUMERO" in capsys.readouterr().out
+
+
+def test_send_webhook_assina_com_secret_do_env(monkeypatch, capsys):
+    from agent_scan import send_webhook
+    seen = {}
+
+    def fake_send(url, event, payload, secret):
+        seen.update(url=url, event=event, payload=payload, secret=secret)
+        return 204
+
+    monkeypatch.setattr(send_webhook, "send", fake_send)
+    monkeypatch.setenv("GITHUB_WEBHOOK_SECRET", "s3gr3d0")
+    assert main(["send-webhook", "org/repo#7", "--event", "review"]) == 0
+    assert seen["event"] == "issue_comment" and seen["secret"] == "s3gr3d0"
+    assert seen["url"] == "http://localhost:8080/webhook"
+    assert "HTTP 204" in capsys.readouterr().out

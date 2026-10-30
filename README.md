@@ -33,7 +33,8 @@ GitHub ──webhook (HMAC)──► /webhook ──publish──► Pub/Sub
 | `src/agent_scan/webhook.py` | rotas `/webhook` `/process` `/chunk`, HMAC, OIDC, planner/worker |
 | `src/agent_scan/files.py` | filtro de arquivos revisáveis (pula lockfiles, docs, removidos) |
 | `src/agent_scan/llm/` | providers de LLM: `anthropic` (SDK oficial), `claude-code` (CLI local), `fake` (testes); custo por `usage` × tabela de preços |
-| `src/agent_scan/cli.py` | comandos `doctor`, `ask`, `review-diff`, `review` (locais) e `serve` (serviço) |
+| `src/agent_scan/send_webhook.py` | webhook de teste assinado com HMAC (como o GitHub faria) |
+| `src/agent_scan/cli.py` | comandos locais (`doctor`, `ask`, `review-diff`, `list-prs`, `files`, `review`, `send-webhook`) e `serve` (serviço) |
 
 ## Rodando local
 
@@ -46,7 +47,17 @@ cp .env.example .env         # escolha o provider e preencha as credenciais
 python -m agent_scan doctor  # confere ambiente e credenciais
 python -m agent_scan ask "o que é um code review?"
 python -m agent_scan review-diff examples/calc.py   # revisa examples/calc.py + .diff
-python -m agent_scan review SUA-ORG/SEU-REPO#123    # precisa do GitHub App
+python -m agent_scan list-prs SUA-ORG/SEU-REPO      # testa o GitHub App
+python -m agent_scan files SUA-ORG/SEU-REPO#123     # arquivos e filtro
+python -m agent_scan review SUA-ORG/SEU-REPO#123    # revisa e posta no PR
+```
+
+Webhook local, sem GCP (o job é impresso em vez de ir pro Pub/Sub):
+
+```bash
+PUBSUB_TOPIC=stdout GITHUB_WEBHOOK_SECRET=teste python -m agent_scan serve --port 8080 &
+GITHUB_WEBHOOK_SECRET=teste python -m agent_scan send-webhook SUA-ORG/SEU-REPO#123   # HTTP 204
+GITHUB_WEBHOOK_SECRET=errado python -m agent_scan send-webhook SUA-ORG/SEU-REPO#123  # HTTP 401
 ```
 
 `LLM_PROVIDER` escolhe quem responde: `anthropic` (API, cobra por token),

@@ -67,6 +67,19 @@ def select_event(event: str, payload: dict, command: str = "/review") -> dict | 
     return None
 
 
+class StdoutPublisher:
+    """Publisher local (PUBSUB_TOPIC=stdout): imprime o job em vez de mandar
+    pro Pub/Sub. Testa o /webhook sem GCP."""
+
+    class _Done:
+        def result(self):
+            return "local"
+
+    def publish(self, topic_path: str, data: bytes):
+        print(f"job publicado: {data.decode('utf-8')}", flush=True)
+        return self._Done()
+
+
 def publish_job(publisher, topic_path: str, job: dict) -> None:
     future = publisher.publish(topic_path, json.dumps(job).encode("utf-8"))
     future.result()
@@ -224,6 +237,14 @@ class Cfg:
     def __init__(self, provider):
         self.secret = os.environ["GITHUB_WEBHOOK_SECRET"]  # HMAC do webhook
         self.topic_path = os.environ["PUBSUB_TOPIC"]       # topic do pub/sub
+        self.provider = provider
+        if self.topic_path == "stdout":
+            # Modo local: só o /webhook, job impresso no terminal. Nada de GCP.
+            self.publisher = StdoutPublisher()
+            self.tasks_client = None
+            self.chunk_queue_path = self.chunk_url = self.oidc_sa = ""
+            self.audience = self.bot_login = ""
+            return
         self.chunk_queue_path = os.environ["CHUNK_QUEUE"]  # fila do cloud tasks
         self.chunk_url = os.environ["CHUNK_URL"]           # url pública da rota /chunk
         self.oidc_sa = os.environ["OIDC_SA"]               # SA que assina o OIDC das tasks
@@ -232,7 +253,6 @@ class Cfg:
         # comentários, senão as guardas de idempotência nunca casam e todo
         # retry duplica o review.
         self.bot_login = os.environ["GH_BOT_LOGIN"]
-        self.provider = provider
         from google.cloud import pubsub_v1, tasks_v2
         self.publisher = pubsub_v1.PublisherClient()
         self.tasks_client = tasks_v2.CloudTasksClient()

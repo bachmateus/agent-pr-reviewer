@@ -63,3 +63,36 @@ def test_decode_push_desembrulha_envelope():
     envelope = {"message": {"data": base64.b64encode(
         json.dumps(job).encode()).decode()}}
     assert decode_push(envelope) == job
+
+
+def test_stdout_publisher_imprime_job(capsys):
+    from agent_scan.webhook import StdoutPublisher, publish_job
+    publish_job(StdoutPublisher(), "stdout", {"org": "o", "number": 1})
+    assert 'job publicado: {"org": "o", "number": 1}' in capsys.readouterr().out
+
+
+_CLOUD_ENV = {"GITHUB_WEBHOOK_SECRET": "s", "PUBSUB_TOPIC": "projects/p/topics/t",
+              "CHUNK_QUEUE": "projects/p/locations/l/queues/q", "CHUNK_URL": "https://svc/chunk",
+              "OIDC_SA": "sa@p.iam.gserviceaccount.com", "PROCESS_AUDIENCE": "https://svc",
+              "GH_BOT_LOGIN": "bot[bot]"}
+
+
+def test_cfg_local_stdout_nao_cria_clients_do_gcp(monkeypatch):
+    # Quem copiou o .env.example tem CHUNK_QUEUE preenchido; sem credencial
+    # do GCP o CloudTasksClient quebraria no arranque.
+    from agent_scan.webhook import Cfg, StdoutPublisher
+    for k, v in {**_CLOUD_ENV, "PUBSUB_TOPIC": "stdout"}.items():
+        monkeypatch.setenv(k, v)
+    cfg = Cfg(provider=None)
+    assert isinstance(cfg.publisher, StdoutPublisher) and cfg.tasks_client is None
+
+
+def test_cfg_cloud_exige_variaveis_do_planner(monkeypatch):
+    # GH_BOT_LOGIN vazio desligaria as guardas de idempotência em silêncio.
+    import pytest
+    from agent_scan.webhook import Cfg
+    for k, v in _CLOUD_ENV.items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.delenv("GH_BOT_LOGIN")
+    with pytest.raises(KeyError, match="GH_BOT_LOGIN"):
+        Cfg(provider=None)

@@ -33,6 +33,16 @@ def http(method: str, url: str, token: str,
         return status, {}
 
 
+def list_open_prs(org: str, repo: str, token: str) -> list[dict]:
+    """PRs abertos (1ª página). Serve de checkpoint: o token funciona?"""
+    status, body = http("GET",
+        f"{_API}/repos/{org}/{repo}/pulls?state=open&per_page=30", token)
+    if status >= 400:
+        raise RuntimeError(f"GitHub: listar PRs falhou (HTTP {status}): {body}")
+    return [{"number": p.get("number"), "title": p.get("title", ""),
+             "author": (p.get("user") or {}).get("login", "")} for p in body]
+
+
 def get_pr_head(org: str, repo: str, number: int, token: str) -> str:
     status, body = http("GET", f"{_API}/repos/{org}/{repo}/pulls/{number}", token)
     if status >= 400:

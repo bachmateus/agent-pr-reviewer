@@ -3,8 +3,11 @@
   agent-scan doctor                  -> confere ambiente, config e credenciais
   agent-scan ask "pergunta"          -> uma chamada ao LLM, com tokens e custo
   agent-scan review-diff ARQUIVO     -> revisa ARQUIVO + ARQUIVO.diff, sem GitHub
+  agent-scan list-prs ORG/REPO       -> lista PRs abertos (testa o GitHub App)
+  agent-scan files ORG/REPO#NUM      -> arquivos do PR e quais serão revisados
   agent-scan review ORG/REPO#NUM     -> revisa um PR agora, direto do terminal
   agent-scan serve --port 8080       -> sobe o serviço (webhook/planner/worker)
+  agent-scan send-webhook ORG/REPO#NUM -> manda um webhook assinado de teste
 """
 import argparse
 import os
@@ -98,6 +101,65 @@ def _mint_token() -> str:
         os.environ["GH_APP_PRIVATE_KEY"])
 
 
+def _parse_target(target: str) -> tuple[str, str, int | None] | None:
+    """ORG/REPO ou ORG/REPO#NUMERO. None se o formato não bate."""
+    org_repo, sep, number_s = target.partition("#")
+    org, _, repo = org_repo.partition("/")
+    if not (org and repo):
+        return None
+    if not sep:
+        return org, repo, None
+    return (org, repo, int(number_s)) if number_s.isdigit() else None
+
+
+def cmd_list_prs(target: str) -> int:
+    from agent_scan import pr as pr_api
+    parsed = _parse_target(target)
+    if not parsed:
+        print("uso: agent-scan list-prs ORG/REPO")
+        return 2
+    org, repo, _ = parsed
+    _load_env_and_config()
+    prs = pr_api.list_open_prs(org, repo, _mint_token())
+    print(f"{len(prs)} PR(s) aberto(s) em {org}/{repo}")
+    for p in prs:
+        print(f"  #{p['number']} {p['title']} ({p['author']})")
+    return 0
+
+
+def cmd_files(target: str) -> int:
+    from agent_scan import pr as pr_api
+    from agent_scan.files import reviewable
+    parsed = _parse_target(target)
+    if not parsed or parsed[2] is None:
+        print("uso: agent-scan files ORG/REPO#NUMERO")
+        return 2
+    org, repo, number = parsed
+    _load_env_and_config()
+    files = pr_api.get_pr_files(org, repo, number, _mint_token())
+    for f in files:
+        ok = reviewable(f["filename"], f.get("status", ""))
+        print(f"  {'[revisa]' if ok else '[pula]  '} {f['filename']} ({f.get('status', '')})")
+    return 0
+
+
+def cmd_send_webhook(target: str, event: str, url: str) -> int:
+    from agent_scan import send_webhook
+    parsed = _parse_target(target)
+    if not parsed or parsed[2] is None:
+        print("uso: agent-scan send-webhook ORG/REPO#NUMERO")
+        return 2
+    org, repo, number = parsed
+    _load_env_and_config()
+    if event == "review":
+        gh_event, payload = "issue_comment", send_webhook.comment_payload(org, repo, number)
+    else:
+        gh_event, payload = "pull_request", send_webhook.pr_payload(org, repo, number)
+    status = send_webhook.send(url, gh_event, payload, os.environ["GITHUB_WEBHOOK_SECRET"])
+    print(f"{gh_event} -> {url}: HTTP {status}")
+    return 0 if 200 <= status < 300 else 1
+
+
 def cmd_review(target: str) -> int:
     """Fluxo síncrono local: lê o PR, revisa arquivo a arquivo e posta tudo
     num review só. É o 'loop fechado' do artigo, sem fila nem cloud."""
@@ -105,12 +167,11 @@ def cmd_review(target: str) -> int:
     from agent_scan.reviewer import review_file, summarize_pr
     from agent_scan.files import reviewable
 
-    org_repo, _, number_s = target.partition("#")
-    org, _, repo = org_repo.partition("/")
-    if not (org and repo and number_s.isdigit()):
+    parsed = _parse_target(target)
+    if not parsed or parsed[2] is None:
         print("uso: agent-scan review ORG/REPO#NUMERO")
         return 2
-    number = int(number_s)
+    org, repo, number = parsed
 
     cfg = _load_env_and_config()
     provider = build_provider(cfg)
@@ -159,6 +220,18 @@ def main(argv=None) -> int:
     p_diff = sub.add_parser("review-diff", help="revisa ARQUIVO + ARQUIVO.diff")
     p_diff.add_argument("path")
 
+    p_list = sub.add_parser("list-prs", help="lista PRs abertos de um repo")
+    p_list.add_argument("target", help="ORG/REPO")
+
+    p_files = sub.add_parser("files", help="arquivos do PR e filtro de revisáveis")
+    p_files.add_argument("target", help="ORG/REPO#NUMERO")
+
+    p_send = sub.add_parser("send-webhook", help="manda um webhook assinado de teste")
+    p_send.add_argument("target", help="ORG/REPO#NUMERO")
+    p_send.add_argument("--event", choices=["pr", "review"], default="pr",
+                        help="pr = PR aberto; review = comentário /review")
+    p_send.add_argument("--url", default="http://localhost:8080/webhook")
+
     p_review = sub.add_parser("review", help="revisa um PR agora (síncrono)")
     p_review.add_argument("target", help="ORG/REPO#NUMERO")
 
@@ -172,6 +245,12 @@ def main(argv=None) -> int:
         return cmd_ask(args.question, _load_env_and_config())
     if args.cmd == "review-diff":
         return cmd_review_diff(args.path, _load_env_and_config())
+    if args.cmd == "list-prs":
+        return cmd_list_prs(args.target)
+    if args.cmd == "files":
+        return cmd_files(args.target)
+    if args.cmd == "send-webhook":
+        return cmd_send_webhook(args.target, args.event, args.url)
     if args.cmd == "review":
         return cmd_review(args.target)
     return cmd_serve(args.port)

@@ -87,7 +87,6 @@ def test_review_file_com_fake_filtra_linha():
     assert [c.line for c in r.comments] == [2]
 
 
-
 def test_review_schema_fecha_os_dois_niveis():
     item = REVIEW_SCHEMA["properties"]["comments"]["items"]
     assert REVIEW_SCHEMA["additionalProperties"] is False and item["additionalProperties"] is False
