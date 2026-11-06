@@ -71,11 +71,23 @@ O comando `review` executa o fluxo completo de forma síncrona (sem fila, sem
 cloud): lê o PR, revisa cada arquivo e posta um review com tudo. Imprime o
 custo da execução ao final.
 
+Para testar sem criar o GitHub App, use o `gh` logado na máquina:
+`GH_AUTH=gh` faz `list-prs`, `files` e `review` usarem o token do
+`gh auth token`. O review sai em nome do seu usuário, não de um bot. O `serve`
+continua exigindo o GitHub App.
+
+```bash
+gh auth login
+GH_AUTH=gh python -m agent_scan doctor              # [ok] GitHub via gh CLI
+GH_AUTH=gh python -m agent_scan review SUA-ORG/SEU-REPO#123
+```
+
 ## Pré-requisitos
 
 - **GitHub App** da organização com `Pull requests: Read/Write` +
   `Contents: Read` — passo a passo completo em
-  [`docs/github-app-setup.md`](docs/github-app-setup.md).
+  [`docs/github-app-setup.md`](docs/github-app-setup.md). Para os comandos
+  locais, o `gh` logado serve no lugar (`GH_AUTH=gh`).
 - **LLM**: uma API key da Anthropic (`ANTHROPIC_API_KEY`) **ou** o Claude Code
   instalado e logado (`LLM_PROVIDER=claude-code`). Modelo, teto de tokens e
   tabela de preços ficam em `config/config.yaml`.
@@ -89,6 +101,7 @@ custo da execução ao final.
 | `LLM_PROVIDER` | `anthropic` \| `claude-code` \| `fake` (sobrepõe `provider` do config) |
 | `ANTHROPIC_API_KEY` | credencial da Claude API (provider `anthropic`) |
 | `GH_APP_ID` / `GH_APP_INSTALLATION_ID` / `GH_APP_PRIVATE_KEY` | GitHub App (mint do token efêmero) |
+| `GH_AUTH` | `gh`: comandos locais usam o token do `gh` CLI no lugar do GitHub App |
 | `GITHUB_WEBHOOK_SECRET` | HMAC do webhook |
 | `PUBSUB_TOPIC` | topic que o `/webhook` publica |
 | `CHUNK_QUEUE` / `CHUNK_URL` | fila do Cloud Tasks e URL pública do `/chunk` |

@@ -4,7 +4,7 @@
   agent-scan ask "pergunta"          -> uma chamada ao LLM, com tokens e custo
   agent-scan review-diff ARQUIVO     -> revisa ARQUIVO + ARQUIVO.diff, sem GitHub
   agent-scan eval                    -> mede o review no golden set (com replay em cache)
-  agent-scan list-prs ORG/REPO       -> lista PRs abertos (testa o GitHub App)
+  agent-scan list-prs ORG/REPO       -> lista PRs abertos (testa o acesso ao GitHub)
   agent-scan files ORG/REPO#NUM      -> arquivos do PR e quais serão revisados
   agent-scan review ORG/REPO#NUM     -> revisa um PR agora, direto do terminal
   agent-scan serve --port 8080       -> sobe o serviço (webhook/planner/worker)
@@ -62,9 +62,16 @@ def cmd_doctor(cfg: dict) -> int:
         report("ok", f"provider {name}")
     except Exception as e:  # provider inválido ou SDK sem credencial
         report("falta", f"provider {name}: {e}")
-    for k in ("GH_APP_ID", "GH_APP_INSTALLATION_ID", "GH_APP_PRIVATE_KEY"):
-        if not os.environ.get(k):
-            report("aviso", f"{k} ausente (só necessário a partir da aula 04)")
+    if _uses_gh_cli():
+        try:
+            _gh_token()
+            report("ok", "GitHub via gh CLI (GH_AUTH=gh)")
+        except RuntimeError as e:
+            report("falta", str(e))
+    else:
+        for k in ("GH_APP_ID", "GH_APP_INSTALLATION_ID", "GH_APP_PRIVATE_KEY"):
+            if not os.environ.get(k):
+                report("aviso", f"{k} ausente (só necessário a partir da aula 04)")
     return 1 if missing else 0
 
 
@@ -115,7 +122,26 @@ def cmd_eval(cases_dir: str, cache_dir: str, use_cache: bool, cfg: dict) -> int:
     return 0
 
 
+def _uses_gh_cli() -> bool:
+    """GH_AUTH=gh: usa o token do gh CLI logado na máquina no lugar do GitHub
+    App. Só para os comandos locais; o serviço continua exigindo o App."""
+    return os.environ.get("GH_AUTH", "").strip().lower() == "gh"
+
+
+def _gh_token() -> str:
+    import subprocess
+    if not shutil.which("gh"):
+        raise RuntimeError("gh CLI não encontrado (GH_AUTH=gh)")
+    r = subprocess.run(["gh", "auth", "token"], capture_output=True, text=True)
+    token = r.stdout.strip()
+    if r.returncode != 0 or not token:
+        raise RuntimeError("gh CLI sem login: rode `gh auth login` (GH_AUTH=gh)")
+    return token
+
+
 def _mint_token() -> str:
+    if _uses_gh_cli():
+        return _gh_token()
     from agent_scan.github_app import mint_installation_token
     return mint_installation_token(
         os.environ["GH_APP_ID"],
