@@ -63,6 +63,46 @@ def test_doctor_fake_sem_github_so_avisa(monkeypatch, capsys):
     assert "[aviso]" in out and "[falta]" not in out
 
 
+def _fake_gh(monkeypatch, code=0, out="gho_abc\n"):
+    import subprocess
+    from agent_scan import cli
+    monkeypatch.setenv("GH_AUTH", "gh")
+    monkeypatch.setattr(cli.shutil, "which", lambda name: f"/usr/bin/{name}")
+    calls = []
+
+    def run(args, **kw):
+        calls.append(args)
+        return subprocess.CompletedProcess(args, code, stdout=out, stderr="")
+    monkeypatch.setattr(subprocess, "run", run)
+    return calls
+
+
+def test_mint_token_via_gh_cli(monkeypatch):
+    from agent_scan import cli
+    calls = _fake_gh(monkeypatch)
+    for k in ("GH_APP_ID", "GH_APP_INSTALLATION_ID", "GH_APP_PRIVATE_KEY"):
+        monkeypatch.delenv(k, raising=False)
+    assert cli._mint_token() == "gho_abc"
+    assert calls == [["gh", "auth", "token"]]
+
+
+def test_mint_token_gh_sem_login(monkeypatch):
+    from agent_scan import cli
+    _fake_gh(monkeypatch, code=1, out="")
+    with pytest.raises(RuntimeError, match="gh auth login"):
+        cli._mint_token()
+
+
+def test_doctor_com_gh_nao_pede_github_app(monkeypatch, capsys):
+    monkeypatch.setenv("LLM_PROVIDER", "fake")
+    _fake_gh(monkeypatch)
+    for k in ("GH_APP_ID", "GH_APP_INSTALLATION_ID", "GH_APP_PRIVATE_KEY"):
+        monkeypatch.delenv(k, raising=False)
+    assert main(["doctor"]) == 0
+    out = capsys.readouterr().out
+    assert "[ok] GitHub via gh CLI" in out and "GH_APP_ID" not in out
+
+
 def test_fixture_diff_tem_linhas_comentaveis():
     patch = Path(CALC + ".diff").read_text()
     assert 4 in commentable_lines(patch)  # diff válido e numerado
