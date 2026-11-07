@@ -57,6 +57,11 @@ def cmd_doctor(cfg: dict) -> int:
     elif name == "claude-code":
         report("ok" if shutil.which("claude") else "falta",
                "claude CLI instalado (logado no Claude Code)")
+        key = os.environ.get("ANTHROPIC_API_KEY", "")
+        if key:  # o claude CLI usa a chave do ambiente no lugar do login
+            report("falta" if key.endswith("...") else "aviso",
+                   "ANTHROPIC_API_KEY definida: o claude CLI usa essa chave no lugar do "
+                   "seu login (deixe ANTHROPIC_API_KEY= vazia no .env)")
     try:
         build_provider(cfg)
         report("ok", f"provider {name}")

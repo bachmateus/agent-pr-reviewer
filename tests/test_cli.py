@@ -51,6 +51,15 @@ def test_doctor_provider_invalido(monkeypatch, capsys):
     assert "[falta]" in capsys.readouterr().out
 
 
+def test_doctor_claude_code_com_chave_de_exemplo_falta(monkeypatch, capsys):
+    from agent_scan import cli
+    monkeypatch.setenv("LLM_PROVIDER", "claude-code")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-...")
+    monkeypatch.setattr(cli.shutil, "which", lambda name: f"/usr/bin/{name}")
+    assert main(["doctor"]) == 1
+    assert "[falta] ANTHROPIC_API_KEY definida" in capsys.readouterr().out
+
+
 def test_doctor_fake_sem_github_so_avisa(monkeypatch, capsys):
     monkeypatch.setenv("LLM_PROVIDER", "fake")
     for k in ("GH_APP_ID", "GH_APP_INSTALLATION_ID", "GH_APP_PRIVATE_KEY"):
